@@ -48,6 +48,7 @@ export default function ReportCards() {
   const [activeStudent, setActiveStudent] = useState(null);
   const [cardData,  setCardData]  = useState(null);
   const [cardLoading, setCardLoading] = useState(false);
+  const [allCardsData, setAllCardsData] = useState([]);
   const [remarkForm, setRemarkForm] = useState({ teacher_remark: "", headteacher_remark: "", conduct: "Good" });
   const [savingRemark, setSavingRemark] = useState(false);
 
@@ -93,22 +94,7 @@ export default function ReportCards() {
   const selectedClassObj = classes.find(c => c.id === selectedClass);
   const selectedTermObj  = terms.find(t => t.id === selectedTerm);
 
-  async function openReportCard(student) {
-    setActiveStudent(student);
-    setViewMode("card");
-    setCardLoading(true);
-
-    const [{ data: subs }, { data: grades }, { data: allClassGrades }, { data: remark }] = await Promise.all([
-      supabase.from("subjects").select("*").eq("class_id", selectedClass).order("name"),
-      supabase.from("grades").select("subject_id, sequence_id, score")
-        .eq("student_id", student.id)
-        .in("sequence_id", termSequences.map(s => s.id)),
-      supabase.from("grades").select("student_id, subject_id, sequence_id, score")
-        .in("sequence_id", termSequences.map(s => s.id)),
-      supabase.from("remarks").select("*")
-        .eq("student_id", student.id).eq("term_id", selectedTerm).maybeSingle(),
-    ]);
-
+  async function buildCardData(student, subs, allClassGrades) {
     const subjects = subs || [];
 
     // Build this student's score matrix
@@ -117,7 +103,7 @@ export default function ReportCards() {
       scoreMatrix[sub.id] = {};
       termSequences.forEach(seq => { scoreMatrix[sub.id][seq.id] = null; });
     });
-    (grades || []).forEach(g => {
+    (allClassGrades || []).filter(g => g.student_id === student.id).forEach(g => {
       if (scoreMatrix[g.subject_id]) scoreMatrix[g.subject_id][g.sequence_id] = g.score;
     });
 
@@ -189,16 +175,55 @@ export default function ReportCards() {
       grouped[d].push(sub);
     });
 
-    setCardData({
+    return {
+      student,
       subjects, scoreMatrix, subjectAverages, overallAvg,
       rank, totalStudents: students.length,
       classSubjectStats, classOverallAvg, grouped,
-    });
+    };
+  }
+
+  async function openReportCard(student) {
+    setActiveStudent(student);
+    setViewMode("card");
+    setCardLoading(true);
+
+    const [{ data: subs }, { data: allClassGrades }, { data: remark }] = await Promise.all([
+      supabase.from("subjects").select("*").eq("class_id", selectedClass).order("name"),
+      supabase.from("grades").select("student_id, subject_id, sequence_id, score")
+        .in("sequence_id", termSequences.map(s => s.id)),
+      supabase.from("remarks").select("*")
+        .eq("student_id", student.id).eq("term_id", selectedTerm).maybeSingle(),
+    ]);
+
+    const data = await buildCardData(student, subs, allClassGrades);
+    setCardData(data);
     setRemarkForm({
       teacher_remark: remark?.teacher_remark || "",
       headteacher_remark: remark?.headteacher_remark || "",
       conduct: remark?.conduct || "Good",
     });
+    setCardLoading(false);
+  }
+
+  async function openAllReportCards() {
+    setViewMode("all");
+    setCardLoading(true);
+
+    const [{ data: subs }, { data: allClassGrades }, { data: remarks }] = await Promise.all([
+      supabase.from("subjects").select("*").eq("class_id", selectedClass).order("name"),
+      supabase.from("grades").select("student_id, subject_id, sequence_id, score")
+        .in("sequence_id", termSequences.map(s => s.id)),
+      supabase.from("remarks").select("*").eq("term_id", selectedTerm).in("student_id", students.map(s=>s.id)),
+    ]);
+
+    const allData = await Promise.all(students.map(s => buildCardData(s, subs, allClassGrades)));
+    const remarksMap = {};
+    (remarks || []).forEach(r => { remarksMap[r.student_id] = r; });
+    setAllCardsData(allData.map(d => ({
+      ...d,
+      remark: remarksMap[d.student.id] || { teacher_remark:"", headteacher_remark:"", conduct:"Good" },
+    })));
     setCardLoading(false);
   }
 
@@ -238,7 +263,14 @@ export default function ReportCards() {
                 <Save size={14}/> Save Remarks
               </button>
             )}
-            <button onClick={() => window.print()} className="btn-primary flex items-center gap-2">
+            <button onClick={() => {
+              const studentName = (cardData?.student?.full_name || activeStudent?.full_name || "Student").replace(/\s+/g, "_");
+              const termName = (terms.find(t => t.id === selectedTerm)?.name || "Term").replace(/\s+/g, "_");
+              const prevTitle = document.title;
+              document.title = `Report_Card_${studentName}_${termName}`;
+              window.print();
+              setTimeout(() => { document.title = prevTitle; }, 1000);
+            }} className="btn-primary flex items-center gap-2">
               <Printer size={16}/> Print / Save as PDF
             </button>
           </div>
@@ -249,7 +281,35 @@ export default function ReportCards() {
             <Loader2 className="animate-spin mr-2" size={20}/> Generating report card...
           </div>
         ) : (
-          <div id="report-card" style={{ fontFamily: "Georgia, serif", background: "white", padding: "24px", border: "1px solid #ccc", borderRadius: "12px" }}>
+          <>
+          <style>{`
+            @media print {
+              @page { size: A4; margin: 8mm; }
+              body * { visibility: hidden; }
+              #report-card, #report-card * { visibility: visible; }
+              #report-card { position: absolute; top: 0; left: 0; width: 100%; transform-origin: top left; background: white !important; }
+              #report-card table, #report-card tbody, #report-card tr, #report-card td, #report-card th {
+                background: transparent !important; background-color: transparent !important;
+              }
+
+              #report-card td[style*="145c30"], #report-card th[style*="145c30"] { background: #145c30 !important; }
+              #report-card td[style*="2d5a8e"], #report-card th[style*="2d5a8e"] { background: #2d5a8e !important; }
+              #report-card td[style*="7a5200"], #report-card th[style*="7a5200"] { background: #7a5200 !important; }
+              #report-card td[colspan] { background: transparent !important; }
+              .no-print { display: none !important; }
+              #report-card table { font-size: 9px !important; }
+              #report-card td, #report-card th { padding: 2px 4px !important; }
+            }
+          `}</style>
+          <div id="report-card" style={{ fontFamily: "Georgia, serif", background: "white", padding: "24px", border: "1px solid #ccc", borderRadius: "12px", position: "relative" }}>
+            {/* Watermark */}
+            <img src="/logo_bg.png" alt="" style={{
+              position: "absolute", top: "50%", left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: "70%", maxWidth: "480px", opacity: 0.04,
+              pointerEvents: "none", zIndex: 0, objectFit: "contain",
+            }}/>
+            <div style={{ position: "relative", zIndex: 1 }}>
 
             {/* ── HEADER ── */}
             <div style={{ display:"flex", alignItems:"center", gap:"16px", borderBottom:"3px double #1a6b3c", paddingBottom:"12px", marginBottom:"12px" }}>
@@ -475,8 +535,9 @@ export default function ReportCards() {
               <strong>GRADE KEY:</strong>&nbsp;&nbsp;
               A (80–100%) = Excellent &nbsp;|&nbsp; B (65–79%) = Very Good &nbsp;|&nbsp; C (50–64%) = Good &nbsp;|&nbsp; D (40–49%) = Fair &nbsp;|&nbsp; F (&lt;40%) = Needs Improvement
             </div>
-
-          </div>
+            </div>
+            </div>
+          </>
         )}
 
         {/* Save remarks button (bottom, screen only) */}

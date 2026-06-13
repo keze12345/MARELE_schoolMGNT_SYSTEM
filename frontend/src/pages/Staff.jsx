@@ -194,6 +194,7 @@ export default function Staff() {
     teacher:    staff.filter(s=>s.role==="teacher").length,
     bursar:     staff.filter(s=>s.role==="bursar").length,
     secretary:  staff.filter(s=>s.role==="secretary").length,
+    parent:     staff.filter(s=>s.role==="parent").length,
   };
 
   return (
@@ -230,6 +231,7 @@ export default function Staff() {
           { key:"teacher",    label:`Teachers (${counts.teacher})`     },
           { key:"bursar",     label:`Bursar (${counts.bursar})`        },
           { key:"secretary",  label:`Secretary (${counts.secretary})`  },
+          { key:"parent",     label:`Parents (${counts.parent})`        },
         ].map(({ key, label }) => (
           <button key={key} onClick={() => setFilterRole(key)}
             className={`px-4 py-1.5 rounded-xl text-sm font-medium border transition-all

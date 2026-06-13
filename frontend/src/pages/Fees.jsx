@@ -673,12 +673,45 @@ export default function Fees() {
       {/* ── PAYMENT HISTORY MODAL ── */}
       {showHistory && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowHistory(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
+          <style>{`
+            @media print {
+              @page { size: A4; margin: 8mm; }
+              body * { visibility: hidden; }
+              #receipt-print, #receipt-print * { visibility: visible; }
+              #receipt-print { position: absolute; top: 0; left: 0; width: 100%; background: transparent !important; }
+              #receipt-print .bg-gray-50,
+              #receipt-print .border,
+              #receipt-print [class*="bg-"] { background: transparent !important; }
+              .no-print { display: none !important; }
+            }
+          `}</style>
+          <div id="receipt-print" className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6 space-y-4" style={{ position:"relative" }} onClick={e => e.stopPropagation()}>
+            <img src="/logo_bg.png" alt="" style={{
+              position: "absolute", top: "50%", left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: "55%", maxWidth: "350px", opacity: 0.07,
+              pointerEvents: "none", zIndex: 0, objectFit: "contain",
+            }}/>
+            <div style={{ position:"relative", zIndex:1 }}>
+            <div className="flex items-center justify-between no-print">
               <h2 className="font-display font-bold text-gray-900">Payment History</h2>
               <div className="flex gap-2">
-                <button onClick={() => window.print()} className="text-gray-400 hover:text-primary"><Printer size={17}/></button>
+                <button onClick={() => {
+                  const studentName = (showHistory.student.full_name || "Student").replace(/\s+/g, "_");
+                  const prevTitle = document.title;
+                  document.title = `Receipt_${studentName}_${ACADEMIC_YEAR}`;
+                  window.print();
+                  setTimeout(() => { document.title = prevTitle; }, 1000);
+                }} className="text-gray-400 hover:text-primary"><Printer size={17}/></button>
                 <button onClick={() => setShowHistory(null)} className="text-gray-400 hover:text-gray-600"><X size={18}/></button>
+              </div>
+            </div>
+            {/* Print header */}
+            <div className="hidden print:flex items-center gap-3 border-b-2 pb-3 mb-3" style={{ borderColor:"#1a6b3c" }}>
+              <img src="/logo_ma.png" alt="" style={{ width:50, height:50, objectFit:"contain" }}/>
+              <div>
+                <div className="font-bold text-sm" style={{ color:"#1a6b3c" }}>SS. Mary and Elizabeth Nursery and Primary Academy</div>
+                <div className="text-xs text-gray-500">Fee Payment Receipt · {ACADEMIC_YEAR}</div>
               </div>
             </div>
             <div className="p-3 bg-gray-50 rounded-xl">
@@ -717,6 +750,7 @@ export default function Fees() {
                   <div className="font-bold text-green-600 text-sm">{fmt(p.amount)}</div>
                 </div>
               ))}
+            </div>
             </div>
           </div>
         </div>
