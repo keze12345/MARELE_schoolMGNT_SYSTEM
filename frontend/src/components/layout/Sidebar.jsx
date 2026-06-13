@@ -2,12 +2,14 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import {
   LayoutDashboard, Users, UserCheck, BookOpen,
-  Calendar, Receipt, Bell, Settings, LogOut, FileText,
-  ChevronRight, Menu, X, Layers, Sun, Moon
+  Calendar, Receipt, Settings, LogOut, FileText,
+  ChevronRight, Menu, X, Layers, Sun, Moon, Baby
 } from "lucide-react";
 import { useState } from "react";
 
 const navItems = [
+  { to: "/parent",       icon: Baby,            label: "My Children",    roles: ["parent"] },
+  { to: "/settings",     icon: Settings,        label: "Settings",       roles: ["parent"] },
   { to: "/dashboard",    icon: LayoutDashboard, label: "Dashboard",      roles: ["admin","headmaster","teacher","bursar","secretary"] },
   { to: "/setup",        icon: Layers,          label: "Academic Setup", roles: ["admin","headmaster"] },
   { to: "/students",     icon: Users,           label: "Students",       roles: ["admin","headmaster","secretary","teacher"] },
@@ -25,6 +27,7 @@ const roleColors = {
   teacher:    "#3b82f6",
   bursar:     "#8b5cf6",
   secretary:  "#06b6d4",
+  parent:     "#1a6b3c",
 };
 
 export default function Sidebar() {
@@ -43,12 +46,14 @@ export default function Sidebar() {
           className="w-16 h-16 object-contain mb-2 drop-shadow-md" />
         <div className="text-center">
           <div className="text-white font-display font-bold text-xs leading-tight">Ss. Mary & Elizabeth</div>
-          <div className="text-green-300 text-xs">N&P Academy · Buea</div>
+          <div className="text-green-300 text-xs">
+            {role === "parent" ? "Parent Portal" : "N&P Academy · Buea"}
+          </div>
         </div>
       </div>
 
       {/* User card */}
-      <NavLink to="/settings" onClick={() => setOpen(false)}
+      <NavLink to={role === "parent" ? "/settings" : "/settings"} onClick={() => setOpen(false)}
         className="mx-3 my-3 p-3 rounded-2xl bg-white/10 border border-white/10 hover:bg-white/20 transition-colors">
         <div className="flex items-center gap-2">
           {profile?.avatar_url ? (
@@ -62,7 +67,9 @@ export default function Sidebar() {
           )}
           <div className="min-w-0 flex-1">
             <div className="text-white text-xs font-semibold truncate">{profile?.full_name || "User"}</div>
-            <div className="text-green-300 text-xs capitalize">{role}</div>
+            <div className="text-green-300 text-xs capitalize">
+              {role === "parent" ? "Parent" : role}
+            </div>
           </div>
           <Settings size={13} className="text-white/40 flex-shrink-0"/>
         </div>
@@ -71,7 +78,7 @@ export default function Sidebar() {
       {/* Nav */}
       <nav className="flex-1 px-3 space-y-0.5 overflow-y-auto pb-2">
         {allowed.map(({ to, icon: Icon, label }) => (
-          <NavLink key={to} to={to} onClick={() => setOpen(false)}
+          <NavLink key={to + label} to={to} onClick={() => setOpen(false)}
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group
                ${isActive ? "bg-white/20 text-white shadow-sm" : "text-green-200 hover:bg-white/10 hover:text-white"}`}>
@@ -84,13 +91,10 @@ export default function Sidebar() {
 
       {/* Bottom */}
       <div className="px-3 py-3 border-t border-white/10 space-y-1">
-        {/* Theme toggle */}
         <button onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
                      text-green-200 hover:bg-white/10 hover:text-white transition-all w-full">
-          {theme === "dark"
-            ? <><Sun size={17}/> Light mode</>
-            : <><Moon size={17}/> Dark mode</>}
+          {theme === "dark" ? <><Sun size={17}/> Light mode</> : <><Moon size={17}/> Dark mode</>}
         </button>
         <button onClick={() => { signOut(); navigate("/login"); }}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium

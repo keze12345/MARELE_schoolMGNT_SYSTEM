@@ -61,3 +61,4 @@ export function AuthProvider({ children }) {
     </AuthContext.Provider>
   );
 }
+// Parent routing is handled in App.jsx via role check
