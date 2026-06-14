@@ -8,6 +8,8 @@ const usersRouter = require("./routes/users");
 const app = express();
 
 const allowedOrigins = [
+  "https://marele-school-mgnt-system.vercel.app",
+  "https://marele-schoolmgnt-system.vercel.app",
   "http://localhost:3000",
   "http://localhost:3001",
   "https://neon-taffy-e95a1c.netlify.app",
