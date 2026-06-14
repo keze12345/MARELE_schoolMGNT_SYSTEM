@@ -9,8 +9,8 @@ async function ping() {
   }
 }
 
-// Ping every 4 days to prevent free tier pause
-setInterval(ping, 4 * 24 * 60 * 60 * 1000);
+// Ping every 10 minutes to prevent Render from sleeping
+setInterval(ping, 10 * 60 * 1000);
 ping();
 
 module.exports = { ping };

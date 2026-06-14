@@ -12,6 +12,7 @@ const allowedOrigins = [
   "http://localhost:3001",
   "https://neon-taffy-e95a1c.netlify.app",
   "https://marelimanagementsystem.netlify.app",
+  "https://mareli-school.vercel.app",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
 
