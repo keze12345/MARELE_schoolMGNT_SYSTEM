@@ -9,6 +9,7 @@ import Attendance from "./pages/Attendance";
 import Grades from "./pages/Grades";
 import AcademicSetup from "./pages/AcademicSetup";
 import Staff from "./pages/Staff";
+import ClassLists from "./pages/ClassLists";
 import ReportCards from "./pages/ReportCards";
 import Fees from "./pages/Fees";
 import ParentPortal from "./pages/ParentPortal";

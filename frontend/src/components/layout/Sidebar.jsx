@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import {
   LayoutDashboard, Users, UserCheck, BookOpen,
-  Calendar, Receipt, Settings, LogOut, FileText,
+  Calendar, Receipt, Settings, LogOut, FileText, ClipboardList,
   ChevronRight, Menu, X, Layers, Sun, Moon, Baby
 } from "lucide-react";
 import { useState } from "react";
@@ -16,6 +16,7 @@ const navItems = [
   { to: "/staff",        icon: UserCheck,       label: "Staff",          roles: ["admin","headmaster"] },
   { to: "/grades",       icon: BookOpen,        label: "Grades",         roles: ["admin","headmaster","teacher"] },
   { to: "/report-cards", icon: FileText,        label: "Report Cards",   roles: ["admin","headmaster","teacher"] },
+  { to: "/classlists",   icon: ClipboardList,   label: "Class Lists",    roles: ["admin","headmaster","teacher"] },
   { to: "/attendance",   icon: Calendar,        label: "Attendance",     roles: ["admin","headmaster","teacher"] },
   { to: "/fees",         icon: Receipt,         label: "Fees",           roles: ["admin","headmaster","bursar"] },
   { to: "/settings",     icon: Settings,        label: "Settings",       roles: ["admin","headmaster","teacher","bursar","secretary"] },
