@@ -47,7 +47,8 @@ function App() {
           <Route element={<ProtectedLayout />}>
             <Route path="/dashboard"    element={<Dashboard />}     />
             <Route path="/students"     element={<Students />}      />
-            <Route path="/staff"        element={<Staff />}         />
+            <Route path="/staff" element={<Staff />} />
+            <Route path="/classlists" element={<ClassLists />} />
             <Route path="/attendance"   element={<Attendance />}    />
             <Route path="/grades"       element={<Grades />}        />
             <Route path="/setup"        element={<AcademicSetup />} />
