@@ -8,12 +8,13 @@ const usersRouter = require("./routes/users");
 const app = express();
 
 const allowedOrigins = [
-  "https://marele-school-mgnt-system.vercel.app",
-  "https://marele-schoolmgnt-system.vercel.app",
   "http://localhost:3000",
   "http://localhost:3001",
   "https://neon-taffy-e95a1c.netlify.app",
   "https://marelimanagementsystem.netlify.app",
+  "https://marelimanagementsystem.vercel.app",
+  "https://marele-school-mgnt-system.vercel.app",
+  "https://marele-schoolmgnt-system.vercel.app",
   "https://mareli-school.vercel.app",
   process.env.FRONTEND_URL,
 ].filter(Boolean);
@@ -23,6 +24,7 @@ app.use(cors({
     if (!origin || allowedOrigins.some(o => origin.startsWith(o))) {
       callback(null, true);
     } else {
+      console.log("CORS blocked:", origin);
       callback(new Error("Not allowed by CORS"));
     }
   },
@@ -35,4 +37,4 @@ app.get("/api/health", (req, res) => res.json({ status: "ok", env: process.env.N
 app.use("/api/users", usersRouter);
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () => console.log("Server running on port " + PORT));
