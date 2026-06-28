@@ -51,7 +51,7 @@ export default function AcademicSetup() {
   const [saving,    setSaving]    = useState(false);
   const [activeTab, setActiveTab] = useState("years");
 
-  const [yearForm,  setYearForm]  = useState({ name:"" });
+  const [yearForm,  setYearForm]  = useState({ name:"", program_type:"regular", start_date:"", end_date:"" });
   const [termForm,  setTermForm]  = useState({ academic_year_id:"", name:"Term 1", start_date:"", end_date:"" });
   const [seqForm,   setSeqForm]   = useState({ term_id:"", name:"Sequence 1", start_date:"", end_date:"" });
   const [classForm, setClassForm] = useState({ academic_year_id:"", name:"", level:"Class 1", section:"anglophone", teacher_id:"", teacher_name:"" });
@@ -100,7 +100,12 @@ export default function AcademicSetup() {
     e.preventDefault(); setSaving(true);
     const { error } = await supabase.from("academic_years").insert([yearForm]);
     if (error) toast.error(error.message);
-    else { toast.success("Academic year created!"); setModal(null); setYearForm({ name:"" }); fetchAll(); }
+    else {
+      toast.success(yearForm.program_type === "holiday" ? "Holiday program created!" : "Academic year created!");
+      setModal(null);
+      setYearForm({ name:"", program_type:"regular", start_date:"", end_date:"" });
+      fetchAll();
+    }
     setSaving(false);
   }
 
@@ -126,13 +131,14 @@ export default function AcademicSetup() {
     const payload = { ...classForm, teacher_name: selectedTeacher?.full_name || classForm.teacher_name };
     const { data, error } = await supabase.from("classes").insert([payload]).select().single();
     if (error) { toast.error(error.message); setSaving(false); return; }
-    const defaults = DEFAULT_SUBJECTS[classForm.level] || [];
+    const isHoliday = years.find(y => y.id === classForm.academic_year_id)?.program_type === "holiday";
+    const defaults = isHoliday ? [] : (DEFAULT_SUBJECTS[classForm.level] || []);
     if (defaults.length) {
       await supabase.from("subjects").insert(
         defaults.map(s => ({ class_id: data.id, name: s.name, coefficient: s.coefficient }))
       );
     }
-    toast.success("Class created with default subjects!");
+    toast.success(isHoliday ? "Group created!" : "Class created with default subjects!");
     setModal(null); fetchAll(); setSaving(false);
   }
 
@@ -152,6 +158,8 @@ export default function AcademicSetup() {
   }
 
   const activeYear = years.find(y => y.is_active);
+  const selectedYearObj = years.find(y => y.id === classForm.academic_year_id);
+  const selectedYearIsHoliday = selectedYearObj?.program_type === "holiday";
 
   const TABS = [
     { key:"years",     label:"Academic Years", icon:GraduationCap, count:years.length,     color:"text-green-600"  },
@@ -419,13 +427,56 @@ export default function AcademicSetup() {
 
       {/* ── Modals ── */}
       {modal === "year" && (
-        <Modal title="New Academic Year" onClose={() => setModal(null)}>
+        <Modal title="New Academic Year / Program" onClose={() => setModal(null)}>
           <form onSubmit={saveYear} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Year name *</label>
-              <input className="input" required placeholder="e.g. 2024-2025"
-                value={yearForm.name} onChange={e => setYearForm({ name: e.target.value })}/>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Program type *</label>
+              <div className="grid grid-cols-2 gap-3">
+                <button type="button"
+                  onClick={() => setYearForm(p => ({ ...p, program_type: "regular" }))}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${
+                    yearForm.program_type === "regular"
+                      ? "border-primary bg-green-50"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}>
+                  <div className="font-semibold text-sm text-gray-800">Regular school year</div>
+                  <div className="text-xs text-gray-500 mt-0.5">Sept – June, terms & sequences</div>
+                </button>
+                <button type="button"
+                  onClick={() => setYearForm(p => ({ ...p, program_type: "holiday" }))}
+                  className={`p-3 rounded-xl border-2 text-left transition-all ${
+                    yearForm.program_type === "holiday"
+                      ? "border-secondary bg-amber-50"
+                      : "border-gray-200 hover:border-gray-300"
+                  }`}>
+                  <div className="font-semibold text-sm text-gray-800">Holiday program</div>
+                  <div className="text-xs text-gray-500 mt-0.5">Short, dated session</div>
+                </button>
+              </div>
             </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {yearForm.program_type === "holiday" ? "Program name *" : "Year name *"}
+              </label>
+              <input className="input" required
+                placeholder={yearForm.program_type === "holiday" ? "e.g. August Holiday Camp 2026" : "e.g. 2024-2025"}
+                value={yearForm.name}
+                onChange={e => setYearForm(p => ({ ...p, name: e.target.value }))}/>
+            </div>
+            {yearForm.program_type === "holiday" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Start date</label>
+                  <input type="date" className="input" value={yearForm.start_date}
+                    onChange={e => setYearForm(p => ({ ...p, start_date: e.target.value }))}/>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">End date</label>
+                  <input type="date" className="input" value={yearForm.end_date}
+                    onChange={e => setYearForm(p => ({ ...p, end_date: e.target.value }))}/>
+                </div>
+              </div>
+            )}
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setModal(null)} className="btn-ghost">Cancel</button>
               <button type="submit" disabled={saving} className="btn-primary flex items-center gap-2">
@@ -532,11 +583,19 @@ export default function AcademicSetup() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Class level *</label>
-                <select className="input" value={classForm.level}
-                  onChange={e => setClassForm(p => ({ ...p, level: e.target.value, name: e.target.value }))}>
-                  {CLASS_LEVELS.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {selectedYearIsHoliday ? "Group name *" : "Class level *"}
+                </label>
+                {selectedYearIsHoliday ? (
+                  <input className="input" required placeholder="e.g. Juniors 6-8yrs"
+                    value={classForm.level}
+                    onChange={e => setClassForm(p => ({ ...p, level: e.target.value, name: e.target.value }))}/>
+                ) : (
+                  <select className="input" value={classForm.level}
+                    onChange={e => setClassForm(p => ({ ...p, level: e.target.value, name: e.target.value }))}>
+                    {CLASS_LEVELS.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Class name *</label>
