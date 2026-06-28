@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../context/AuthContext";
 import { Calendar, Check, X, Clock, FileText, Loader2, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -11,6 +12,7 @@ const STATUS_CONFIG = {
 };
 
 export default function Attendance() {
+  const { profile } = useAuth();
   const today = new Date().toISOString().split("T")[0];
   const [classes,       setClasses]       = useState([]);
   const [selectedDate,  setSelectedDate]  = useState(today);
@@ -23,12 +25,17 @@ export default function Attendance() {
   const [initLoading,   setInitLoading]   = useState(true);
 
   useEffect(() => {
-    supabase.from("classes").select("*").order("name").then(({ data }) => {
+    if (!profile) return;
+    let classQuery = supabase.from("classes").select("*").order("name");
+    if (profile?.role === "teacher") {
+      classQuery = classQuery.eq("teacher_id", profile.id);
+    }
+    classQuery.then(({ data }) => {
       setClasses(data || []);
       if ((data || []).length > 0) setSelectedClass(data[0].id);
       setInitLoading(false);
     });
-  }, []);
+  }, [profile]);
 
   useEffect(() => {
     if (!selectedClass) return;
@@ -134,11 +141,11 @@ export default function Attendance() {
           </button>
           <div className="flex items-center gap-2">
             <Calendar size={16} className="text-primary"/>
-            <input type="date" value={selectedDate} max={today}
+            <input type="date" value={selectedDate}
               onChange={e => setSelectedDate(e.target.value)}
               className="input w-auto text-sm py-2"/>
           </div>
-          <button onClick={() => shiftDate(1)} disabled={selectedDate >= today}
+          <button onClick={() => shiftDate(1)}
             className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors disabled:opacity-40">
             <ChevronRight size={16}/>
           </button>
