@@ -150,6 +150,38 @@ export default function Students() {
   }
 
   // ── Assign student to class ──
+  // Auto-creates a student_fees row if the class belongs to a holiday program
+  // and the student doesn't already have a fee record for that program.
+  async function createHolidayFeeIfNeeded(studentId, classId) {
+    const { data: cls } = await supabase
+      .from("classes").select("academic_year_id").eq("id", classId).single();
+    if (!cls?.academic_year_id) return;
+
+    const { data: year } = await supabase
+      .from("academic_years").select("name, program_type").eq("id", cls.academic_year_id).single();
+    if (!year || year.program_type !== "holiday") return;
+
+    const { data: existing } = await supabase
+      .from("student_fees").select("id")
+      .eq("student_id", studentId).eq("academic_year", year.name).maybeSingle();
+    if (existing) return; // already has a fee record for this program
+
+    const { data: struct } = await supabase
+      .from("fee_structures").select("amount")
+      .eq("academic_year", year.name).eq("level_group", "Holiday Program")
+      .maybeSingle();
+    const amount = struct?.amount || 0;
+    if (!amount) return; // no fee structure set up yet for this program
+
+    await supabase.from("student_fees").insert([{
+      student_id: studentId,
+      academic_year: year.name,
+      level_group: "Holiday Program",
+      total_owed: amount,
+      total_paid: 0,
+    }]);
+  }
+
   async function handleAssign(e) {
     e.preventDefault();
     if (!assignClass) { toast.error("Select a class"); return; }
@@ -159,7 +191,11 @@ export default function Students() {
     const { error } = await supabase.from("class_students")
       .insert([{ student_id: showAssign.id, class_id: assignClass }]);
     if (error) toast.error(error.message);
-    else { toast.success(`${showAssign.full_name} assigned to class!`); setShowAssign(null); setAssignClass(""); fetchAll(); }
+    else {
+      await createHolidayFeeIfNeeded(showAssign.id, assignClass);
+      toast.success(`${showAssign.full_name} assigned to class!`);
+      setShowAssign(null); setAssignClass(""); fetchAll();
+    }
     setAssigning(false);
   }
 
@@ -210,6 +246,7 @@ export default function Students() {
         const match = classes.find(c => c.level === form.class_level);
         if (match) {
           await supabase.from("class_students").insert([{ student_id: data.id, class_id: match.id }]);
+          await createHolidayFeeIfNeeded(data.id, match.id);
         }
         // Create parent account automatically
         try {
