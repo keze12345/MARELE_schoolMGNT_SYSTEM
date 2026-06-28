@@ -8,7 +8,6 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 
-const ACADEMIC_YEAR = "2026-2027";
 const BANK = "Buea Police Cooperative Credit Union PLC";
 const ACCOUNT_NO = "5238";
 
@@ -27,6 +26,14 @@ const LEVEL_GROUP_MAP = {
 
 const NURSERY = ["Day Care","Pre-Nursery","Nursery 1","Nursery 2"];
 
+// Returns the correct fee-structure level group for any class level,
+// falling back to "Holiday Program" for holiday-program stream names
+// instead of incorrectly defaulting to a regular-school tier.
+function getLevelGroup(classLevel) {
+  if (LEVEL_GROUP_MAP[classLevel]) return LEVEL_GROUP_MAP[classLevel];
+  return "Holiday Program";
+}
+
 function fmt(n) {
   if (!n && n !== 0) return "—";
   return Number(n).toLocaleString("fr-CM") + " F";
@@ -41,6 +48,8 @@ function statusInfo(paid, owed) {
 
 export default function Fees() {
   const { profile } = useAuth();
+  const [years,           setYears]           = useState([]);
+  const [selectedYearName, setSelectedYearName] = useState("");
   const [students,   setStudents]   = useState([]);
   const [classes,    setClasses]    = useState([]);
   const [classMap,   setClassMap]   = useState({}); // studentId -> classId[]
@@ -62,15 +71,27 @@ export default function Fees() {
 
   const [payForm,    setPayForm]    = useState({ component:"", amount:"", receipt_no:"", bank_name:BANK, payment_date:"", notes:"" });
   const [setupForm,  setSetupForm]  = useState({ discount_pct:"0", notes:"", is_new_pupil:false });
-  const [structForm, setStructForm] = useState({ level_group:"", component:"", amount:"", academic_year:ACADEMIC_YEAR });
+  const [structForm, setStructForm] = useState({ level_group:"", component:"", amount:"", academic_year:selectedYearName });
   const [saving,       setSaving]       = useState(false);
   const [savingSetup,  setSavingSetup]  = useState(false);
   const [savingStruct, setSavingStruct] = useState(false);
 
   useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { if (selectedYearName) fetchAll(); }, [selectedYearName]);
 
   async function fetchAll() {
     setLoading(true);
+
+    // Resolve which academic year/program we're viewing fees for
+    let yearName = selectedYearName;
+    if (!yearName) {
+      const { data: yrs } = await supabase.from("academic_years").select("*").order("created_at", { ascending: false });
+      setYears(yrs || []);
+      const active = (yrs || []).find(y => y.is_active) || (yrs || [])[0];
+      yearName = active?.name || "";
+      setSelectedYearName(yearName);
+      if (!yearName) { setLoading(false); return; }
+    }
     const [
       { data: studs }, { data: cls }, { data: cs },
       { data: feeData }, { data: pmts }, { data: structs }
@@ -78,9 +99,9 @@ export default function Fees() {
       supabase.from("students").select("id,full_name,class_level,gender,photo_url,parent_name,parent_phone,is_repeating").order("full_name"),
       supabase.from("classes").select("*").order("name"),
       supabase.from("class_students").select("student_id,class_id"),
-      supabase.from("student_fees").select("*").eq("academic_year", ACADEMIC_YEAR),
+      supabase.from("student_fees").select("*").eq("academic_year", yearName),
       supabase.from("fee_payments").select("*").order("payment_date", { ascending:false }),
-      supabase.from("fee_structures").select("*").eq("academic_year", ACADEMIC_YEAR).order("level_group"),
+      supabase.from("fee_structures").select("*").eq("academic_year", yearName).order("level_group"),
     ]);
     setStudents(studs    || []);
     setClasses(cls       || []);
@@ -185,7 +206,7 @@ export default function Fees() {
   // ── Handlers ──
   async function handleFeeSetup(e) {
     e.preventDefault(); setSavingSetup(true);
-    const levelGroup = LEVEL_GROUP_MAP[showFeeSetup.class_level]||"Primary 2-5";
+    const levelGroup = getLevelGroup(showFeeSetup.class_level);
     const comps = getComponents(levelGroup);
     const regComp = setupForm.is_new_pupil
       ? comps.find(c=>c.component.includes("New"))
@@ -202,7 +223,7 @@ export default function Fees() {
       if (error) { toast.error(error.message); setSavingSetup(false); return; }
     } else {
       const { error } = await supabase.from("student_fees").insert([{
-        student_id:showFeeSetup.id, academic_year:ACADEMIC_YEAR,
+        student_id:showFeeSetup.id, academic_year:selectedYearName,
         level_group:levelGroup, total_owed:Math.round(total), total_paid:0,
         discount_pct:disc, notes:setupForm.notes,
       }]);
@@ -215,10 +236,10 @@ export default function Fees() {
     e.preventDefault(); setSaving(true);
     let feeRecord = getFee(showPayment.id);
     if (!feeRecord) {
-      const levelGroup = LEVEL_GROUP_MAP[showPayment.class_level]||"Primary 2-5";
+      const levelGroup = getLevelGroup(showPayment.class_level);
       const total = getComponents(levelGroup).filter(c=>!c.component.includes("Registration")).reduce((a,b)=>a+Number(b.amount),0);
       const { data, error } = await supabase.from("student_fees").insert([{
-        student_id:showPayment.id, academic_year:ACADEMIC_YEAR,
+        student_id:showPayment.id, academic_year:selectedYearName,
         level_group:levelGroup, total_owed:total, total_paid:0,
       }]).select().single();
       if (error) { toast.error(error.message); setSaving(false); return; }
@@ -245,10 +266,10 @@ export default function Fees() {
     e.preventDefault(); setSavingStruct(true);
     const { error } = await supabase.from("fee_structures").insert([{
       level_group:structForm.level_group, component:structForm.component,
-      amount:parseFloat(structForm.amount), academic_year:ACADEMIC_YEAR,
+      amount:parseFloat(structForm.amount), academic_year:selectedYearName,
     }]);
     if (error) toast.error(error.message);
-    else { toast.success("Component added!"); setShowStructModal(false); setStructForm({ level_group:"", component:"", amount:"", academic_year:ACADEMIC_YEAR }); fetchAll(); }
+    else { toast.success("Component added!"); setShowStructModal(false); setStructForm({ level_group:"", component:"", amount:"", academic_year:selectedYearName }); fetchAll(); }
     setSavingStruct(false);
   }
 
@@ -324,11 +345,23 @@ export default function Fees() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-display font-bold text-gray-900 dark:text-white">Fees</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{ACADEMIC_YEAR} · {BANK} · A/C {ACCOUNT_NO}</p>
+          <p className="text-sm text-gray-500 mt-0.5">{selectedYearName} · {BANK} · A/C {ACCOUNT_NO}</p>
         </div>
-        <button onClick={() => setShowStructModal(true)} className="btn-ghost flex items-center gap-2 text-sm">
-          <Settings2 size={15}/> Manage Components
-        </button>
+        <div className="flex items-center gap-2">
+          {years.length > 1 && (
+            <select className="input w-auto text-sm py-2" value={selectedYearName}
+              onChange={e => setSelectedYearName(e.target.value)}>
+              {years.map(y => (
+                <option key={y.id} value={y.name}>
+                  {y.name}{y.program_type === "holiday" ? " (Holiday)" : ""}
+                </option>
+              ))}
+            </select>
+          )}
+          <button onClick={() => setShowStructModal(true)} className="btn-ghost flex items-center gap-2 text-sm">
+            <Settings2 size={15}/> Manage Components
+          </button>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -551,11 +584,11 @@ export default function Fees() {
             </div>
             <div className="p-3 bg-gray-50 rounded-xl text-sm">
               <div className="font-semibold text-gray-800">{showFeeSetup.full_name}</div>
-              <div className="text-xs text-gray-500">{showFeeSetup.class_level} · {LEVEL_GROUP_MAP[showFeeSetup.class_level]}</div>
+              <div className="text-xs text-gray-500">{showFeeSetup.class_level} · {getLevelGroup(showFeeSetup.class_level)}</div>
             </div>
             <div className="text-xs space-y-1 bg-green-50 rounded-xl p-3">
               <p className="font-semibold text-gray-600 mb-1">Fee breakdown:</p>
-              {getComponents(LEVEL_GROUP_MAP[showFeeSetup.class_level]).map(c => (
+              {getComponents(getLevelGroup(showFeeSetup.class_level)).map(c => (
                 <div key={c.id} className="flex justify-between text-gray-600">
                   <span>{c.component}</span><span className="font-medium">{fmt(c.amount)}</span>
                 </div>
@@ -623,11 +656,11 @@ export default function Fees() {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Payment component *</label>
                 <select className="input" required value={payForm.component}
                   onChange={e => {
-                    const comp = getComponents(LEVEL_GROUP_MAP[showPayment.class_level]||"Primary 2-5").find(c=>c.component===e.target.value);
+                    const comp = getComponents(getLevelGroup(showPayment.class_level)).find(c=>c.component===e.target.value);
                     setPayForm(p=>({...p, component:e.target.value, amount:comp?comp.amount:p.amount}));
                   }}>
                   <option value="">— Select —</option>
-                  {getComponents(LEVEL_GROUP_MAP[showPayment.class_level]||"Primary 2-5").map(c=>(
+                  {getComponents(getLevelGroup(showPayment.class_level)).map(c=>(
                     <option key={c.id} value={c.component}>{c.component} — {fmt(c.amount)}</option>
                   ))}
                   <option value="Other">Other</option>
@@ -699,7 +732,7 @@ export default function Fees() {
                 <button onClick={() => {
                   const studentName = (showHistory.student.full_name || "Student").replace(/\s+/g, "_");
                   const prevTitle = document.title;
-                  document.title = `Receipt_${studentName}_${ACADEMIC_YEAR}`;
+                  document.title = `Receipt_${studentName}_${selectedYearName}`;
                   window.print();
                   setTimeout(() => { document.title = prevTitle; }, 1000);
                 }} className="text-gray-400 hover:text-primary"><Printer size={17}/></button>
@@ -711,12 +744,12 @@ export default function Fees() {
               <img src="/logo_ma.png" alt="" style={{ width:50, height:50, objectFit:"contain" }}/>
               <div>
                 <div className="font-bold text-sm" style={{ color:"#1a6b3c" }}>SS. Mary and Elizabeth Nursery and Primary Academy</div>
-                <div className="text-xs text-gray-500">Fee Payment Receipt · {ACADEMIC_YEAR}</div>
+                <div className="text-xs text-gray-500">Fee Payment Receipt · {selectedYearName}</div>
               </div>
             </div>
             <div className="p-3 bg-gray-50 rounded-xl">
               <div className="font-semibold text-gray-800">{showHistory.student.full_name}</div>
-              <div className="text-xs text-gray-500">{showHistory.student.class_level} · {ACADEMIC_YEAR}</div>
+              <div className="text-xs text-gray-500">{showHistory.student.class_level} · {selectedYearName}</div>
               <div className="grid grid-cols-3 gap-3 mt-3 text-center">
                 <div><div className="text-sm font-bold text-gray-800">{fmt(showHistory.total_owed)}</div><div className="text-xs text-gray-400">Total Owed</div></div>
                 <div><div className="text-sm font-bold text-green-600">{fmt(showHistory.total_paid)}</div><div className="text-xs text-gray-400">Total Paid</div></div>
