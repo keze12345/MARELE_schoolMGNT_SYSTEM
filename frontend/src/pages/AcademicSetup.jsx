@@ -157,7 +157,6 @@ export default function AcademicSetup() {
       start_date: yearForm.start_date || null,
       end_date: yearForm.end_date || null,
     };
-    console.log("YEAR PAYLOAD:", JSON.stringify(payload));
     const { error } = await supabase.from("academic_years").insert([payload]);
     if (error) toast.error(error.message);
     else {

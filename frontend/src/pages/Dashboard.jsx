@@ -37,7 +37,6 @@ export default function Dashboard() {
   useEffect(() => { fetchAll(); }, []);
 
   async function fetchAll() {
-    console.log("DASHBOARD PROFILE:", JSON.stringify(profile));
     setLoading(true);
     const [
       { data: students },

@@ -86,9 +86,9 @@ function CredentialsModal({ credentials, onClose }) {
 
 export default function Students() {
   const { profile } = useAuth();
-  const isUnassignedTeacher = profile?.role === "teacher" && classes.length === 0;
   const [students,    setStudents]    = useState([]);
   const [classes,     setClasses]     = useState([]);
+  const isUnassignedTeacher = profile?.role === "teacher" && classes.length === 0;
   const [classMap,    setClassMap]    = useState({});
   const [loading,     setLoading]     = useState(true);
   const [search,      setSearch]      = useState("");
