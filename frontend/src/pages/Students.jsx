@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
+import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
   Plus, Search, Loader2, X, Pencil, Camera, User,
@@ -84,6 +85,8 @@ function CredentialsModal({ credentials, onClose }) {
 }
 
 export default function Students() {
+  const { profile } = useAuth();
+  const isUnassignedTeacher = profile?.role === "teacher" && classes.length === 0;
   const [students,    setStudents]    = useState([]);
   const [classes,     setClasses]     = useState([]);
   const [classMap,    setClassMap]    = useState({});
@@ -104,15 +107,36 @@ export default function Students() {
   const [credentials, setCredentials] = useState(null);
   const fileRef = useRef();
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { if (profile) fetchAll(); }, [profile]);
 
   async function fetchAll() {
     setLoading(true);
-    const [{ data: studs }, { data: cls }, { data: cs }] = await Promise.all([
-      supabase.from("students").select("*").order("full_name"),
-      supabase.from("classes").select("*").order("name"),
+    let studentQuery = supabase.from("students").select("*").order("full_name");
+    let classQuery   = supabase.from("classes").select("*").order("name");
+
+    if (profile?.role === "teacher") {
+      classQuery = classQuery.eq("teacher_id", profile.id);
+    }
+
+    const [{ data: cls }, { data: cs }] = await Promise.all([
+      classQuery,
       supabase.from("class_students").select("student_id, class_id"),
     ]);
+
+    let studs = [];
+    if (profile?.role === "teacher") {
+      const myClassIds = (cls || []).map(c2 => c2.id);
+      const myStudentIds = (cs || [])
+        .filter(link => myClassIds.includes(link.class_id))
+        .map(link => link.student_id);
+      if (myStudentIds.length > 0) {
+        const { data } = await supabase.from("students").select("*").in("id", myStudentIds).order("full_name");
+        studs = data || [];
+      }
+    } else {
+      const { data } = await studentQuery;
+      studs = data || [];
+    }
     setStudents(studs || []);
     setClasses(cls   || []);
     // Build map: studentId -> [classId, ...]
@@ -355,12 +379,21 @@ export default function Students() {
           <h1 className="text-2xl font-display font-bold text-gray-900 dark:text-white">Students</h1>
           <p className="text-sm text-gray-500 mt-0.5">{students.length} enrolled · MARELI Academy, Buea</p>
         </div>
-        <button onClick={openAdd} className="btn-primary flex items-center gap-2">
-          <Plus size={16}/> Enrol Student
-        </button>
+        {!isUnassignedTeacher && (
+          <button onClick={openAdd} className="btn-primary flex items-center gap-2">
+            <Plus size={16}/> Enrol Student
+          </button>
+        )}
       </div>
 
-      {/* Toolbar */}
+      {isUnassignedTeacher && (
+        <div className="card border-amber-200 bg-amber-50 text-amber-800 text-sm py-6 text-center">
+          You have not been assigned to a class yet.<br/>
+          Please contact your headmaster to be assigned to a class.
+        </div>
+      )}
+
+      {!isUnassignedTeacher && (
       <div className="flex flex-wrap gap-3 items-center">
         <div className="relative flex-1 min-w-[200px]">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
@@ -514,6 +547,7 @@ export default function Students() {
             ))
           )}
         </div>
+      )}
       )}
 
       {/* ── ASSIGN TO CLASS MODAL ── */}

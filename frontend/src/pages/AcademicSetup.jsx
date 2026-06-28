@@ -151,7 +151,13 @@ export default function AcademicSetup() {
 
   async function saveYear(e) {
     e.preventDefault(); setSaving(true);
-    const { error } = await supabase.from("academic_years").insert([yearForm]);
+    const payload = {
+      name: yearForm.name,
+      program_type: yearForm.program_type,
+      start_date: yearForm.start_date || null,
+      end_date: yearForm.end_date || null,
+    };
+    const { error } = await supabase.from("academic_years").insert([payload]);
     if (error) toast.error(error.message);
     else {
       toast.success(yearForm.program_type === "holiday" ? "Holiday program created!" : "Academic year created!");
