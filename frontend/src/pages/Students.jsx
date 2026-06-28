@@ -549,7 +549,6 @@ export default function Students() {
           )}
         </div>
       )}
-      )}
 
       {/* ── ASSIGN TO CLASS MODAL ── */}
       {showAssign && (
