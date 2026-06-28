@@ -94,7 +94,46 @@ export default function AcademicSetup() {
       const data = await res.json();
       setTeachers((data || []).filter(u => u.role === "teacher"));
     } catch { setTeachers([]); }
+
+    try {
+      const allYears = y.data || [];
+      const activeYear = allYears.find(yr => yr.is_active) || allYears[0];
+      if (activeYear && activeYear.program_type === "holiday") {
+        const API2 = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+        const r1 = await fetch(API2 + "/streams?academic_year_id=" + activeYear.id);
+        const existing = await r1.json();
+        const missing = STREAM_DEFS.filter(d => !(existing || []).some(s => s.name === d.name));
+        for (const def of missing) {
+          await fetch(API2 + "/streams", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ academic_year_id: activeYear.id, name: def.name }),
+          });
+        }
+        const r2 = await fetch(API2 + "/streams?academic_year_id=" + activeYear.id);
+        setStreams((await r2.json()) || []);
+      } else {
+        setStreams([]);
+      }
+    } catch(e) { setStreams([]); }
+
     setLoading(false);
+  }
+
+  async function updateStreamTeacher(streamId, teacherId) {
+    setStreamSaving(streamId);
+    const API2 = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+    const teacher = teachers.find(t => t.id === teacherId);
+    try {
+      const res = await fetch(API2 + "/streams/" + streamId, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teacher_id: teacherId || null, teacher_name: teacher ? teacher.full_name : null }),
+      });
+      if (res.ok) { toast.success("Stream teacher updated!"); fetchAll(); }
+      else toast.error("Could not update stream teacher");
+    } catch { toast.error("Network error"); }
+    setStreamSaving(null);
   }
 
   async function setActive(table, id) {
@@ -373,7 +412,43 @@ export default function AcademicSetup() {
         {/* ── CLASSES TAB ── */}
         {activeTab === "classes" && (
           <div>
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-purple-50">
+                  {streams.length > 0 && (
+        <div className="card border-blue-100 mb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center text-blue-600 font-bold text-sm flex-shrink-0">S</div>
+            <h3 className="font-display font-semibold text-gray-900">Streams</h3>
+            <span className="badge-amber text-xs ml-2">Holiday Program only</span>
+          </div>
+          <p className="text-xs text-gray-400 mb-4 ml-10">
+            Each stream shares one teacher. Assigning a teacher here applies to all classes in that stream automatically.
+          </p>
+          <div className="space-y-2">
+            {streams.map(s => (
+              <div key={s.id} className="flex items-center justify-between p-3 rounded-xl border border-gray-100 bg-gray-50">
+                <div>
+                  <div className="font-medium text-gray-800 text-sm">{s.name}</div>
+                  {s.teacher_name
+                    ? <div className="text-xs text-green-600 mt-0.5">Teacher: {s.teacher_name}</div>
+                    : <div className="text-xs text-gray-400 mt-0.5">No teacher assigned yet</div>
+                  }
+                </div>
+                <select
+                  className="input w-auto text-sm py-1.5 min-w-[200px]"
+                  value={s.teacher_id || ""}
+                  disabled={streamSaving === s.id}
+                  onChange={e => updateStreamTeacher(s.id, e.target.value)}>
+                  <option value="">No teacher</option>
+                  {teachers.map(t => (
+                    <option key={t.id} value={t.id}>{t.full_name}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+<div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 bg-purple-50">
               <h2 className="font-display font-semibold text-gray-800 flex items-center gap-2">
                 <Users size={18} className="text-purple-600"/> Classes & Subjects
               </h2>
