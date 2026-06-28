@@ -426,6 +426,7 @@ export default function Students() {
             title="Group by class"><LayoutGrid size={16}/></button>
         </div>
       </div>
+      )}
 
       {/* ── LIST VIEW ── */}
       {viewMode === "list" && (
