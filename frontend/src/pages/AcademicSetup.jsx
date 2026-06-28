@@ -11,6 +11,18 @@ const CLASS_LEVELS = [
   "Class 1","Class 2","Class 3","Class 4","Class 5","Class 6",
 ];
 
+const STREAM_DEFS = [
+  { name: "Pre-Nursery & Nursery", levels: ["Day Care", "Pre-Nursery", "Nursery 1", "Nursery 2"] },
+  { name: "Class 1 & 2",           levels: ["Class 1", "Class 2"] },
+  { name: "Class 3 & 4",           levels: ["Class 3", "Class 4"] },
+  { name: "Class 5 & 6",           levels: ["Class 5", "Class 6"] },
+];
+
+function streamForLevel(level) {
+  const s = STREAM_DEFS.find(d => d.levels.includes(level));
+  return s ? s.name : null;
+}
+
 const DEFAULT_SUBJECTS = {
   "Day Care":    [{ name:"Numeracy", coefficient:2 },{ name:"Literacy", coefficient:2 },{ name:"Creative Arts", coefficient:1 }],
   "Pre-Nursery": [{ name:"Numeracy", coefficient:2 },{ name:"Literacy", coefficient:2 },{ name:"Creative Arts", coefficient:1 }],
@@ -46,6 +58,8 @@ export default function AcademicSetup() {
   const [classes,   setClasses]   = useState([]);
   const [subjects,  setSubjects]  = useState([]);
   const [teachers,  setTeachers]  = useState([]);
+  const [streams,      setStreams]      = useState([]);
+  const [streamSaving, setStreamSaving] = useState(null);
   const [loading,   setLoading]   = useState(true);
   const [modal,     setModal]     = useState(null);
   const [saving,    setSaving]    = useState(false);

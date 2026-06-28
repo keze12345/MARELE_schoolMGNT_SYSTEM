@@ -3,7 +3,8 @@ const cors     = require("cors");
 require("dotenv").config();
 
 require("./keepalive");
-const usersRouter = require("./routes/users");
+const usersRouter   = require("./routes/users");
+const streamsRouter = require("./routes/streams");
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use(express.json());
 
 app.get("/api/health", (req, res) => res.json({ status: "ok", env: process.env.NODE_ENV }));
 app.use("/api/users", usersRouter);
+app.use("/api/streams", streamsRouter);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log("Server running on port " + PORT));
