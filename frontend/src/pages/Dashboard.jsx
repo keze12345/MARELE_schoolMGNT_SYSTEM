@@ -49,31 +49,46 @@ export default function Dashboard() {
     ] = await Promise.all([
       supabase.from("students").select("id, full_name, class_level, gender, section, created_at, photo_url").order("created_at", { ascending: false }),
       supabase.from("profiles").select("id, role, full_name, gender"),
-      supabase.from("classes").select("id, name, level"),
+      supabase.from("classes").select("id, name, level, teacher_id"),
       supabase.from("terms").select("*").order("created_at", { ascending: false }),
       supabase.from("sequences").select("*").order("created_at", { ascending: false }),
       supabase.from("class_students").select("class_id, student_id"),
       supabase.from("grades").select("student_id, subject_id, sequence_id, score"),
     ]);
 
+
+    // Teacher scoping: only their own class(es), nothing else
+    let scopedClasses = classes || [];
+    let scopedStudents = students || [];
+    let scopedClassStudents = classStudents || [];
+    let scopedStaff = staff || [];
+
+    if (profile?.role === "teacher") {
+      scopedClasses = (classes || []).filter(c => c.teacher_id === profile.id);
+      const myClassIds = scopedClasses.map(c => c.id);
+      scopedClassStudents = (classStudents || []).filter(cs => myClassIds.includes(cs.class_id));
+      const myStudentIds = scopedClassStudents.map(cs => cs.student_id);
+      scopedStudents = (students || []).filter(s => myStudentIds.includes(s.id));
+      scopedStaff = [];
+    }
     const activeTerm = (terms || []).find(t => t.is_active) || (terms || [])[0];
     const activeSeq  = (sequences || []).find(s => s.is_active) || (sequences || [])[0];
 
     // Stats
     setStats({
-      totalStudents:  (students || []).length,
-      totalStaff:     (staff || []).filter(s => s.role !== "admin").length,
-      totalClasses:   (classes || []).length,
+      totalStudents:  (scopedStudents || []).length,
+      totalStaff:     (scopedStaff || []).filter(s => s.role !== "admin").length,
+      totalClasses:   (scopedClasses || []).length,
       activeTerm,
       activeSequence: activeSeq,
     });
 
     // Recent 5 enrollments
-    setRecentStudents((students || []).slice(0, 5));
+    setRecentStudents((scopedStudents || []).slice(0, 5));
 
     // Class distribution (students per class level)
     const levelCount = {};
-    (students || []).forEach(s => {
+    (scopedStudents || []).forEach(s => {
       levelCount[s.class_level] = (levelCount[s.class_level] || 0) + 1;
     });
     setClassDistribution(
@@ -83,16 +98,16 @@ export default function Dashboard() {
     );
 
     // Gender split
-    const male   = (students || []).filter(s => s.gender === "male").length;
-    const female = (students || []).filter(s => s.gender === "female").length;
+    const male   = (scopedStudents || []).filter(s => s.gender === "male").length;
+    const female = (scopedStudents || []).filter(s => s.gender === "female").length;
     setGenderSplit([
       { name: "Male",   value: male,   color: "#1a6b3c" },
       { name: "Female", value: female, color: "#e63946" },
     ]);
 
     // Section split
-    const franco = (students || []).filter(s => s.section === "francophone").length;
-    const anglo  = (students || []).filter(s => s.section === "anglophone").length;
+    const franco = (scopedStudents || []).filter(s => s.section === "francophone").length;
+    const anglo  = (scopedStudents || []).filter(s => s.section === "anglophone").length;
     setSectionSplit([
       { name: "Francophone", value: franco, color: "#2563eb" },
       { name: "Anglophone",  value: anglo,  color: "#f5a623" },
@@ -100,15 +115,15 @@ export default function Dashboard() {
 
     // Staff by role
     const roleCount = {};
-    (staff || []).filter(s => s.role !== "admin").forEach(s => {
+    (scopedStaff || []).filter(s => s.role !== "admin").forEach(s => {
       roleCount[s.role] = (roleCount[s.role] || 0) + 1;
     });
     setStaffByRole(Object.entries(roleCount).map(([role, count]) => ({ role, count })));
 
     // Top classes by average grade (if grades exist and active sequence)
-    if (activeSeq && (grades || []).length && (classStudents || []).length) {
-      const classAvgs = (classes || []).map(cls => {
-        const studentIds = (classStudents || [])
+    if (activeSeq && (grades || []).length && (scopedClassStudents || []).length) {
+      const classAvgs = (scopedClasses || []).map(cls => {
+        const studentIds = (scopedClassStudents || [])
           .filter(cs => cs.class_id === cls.id)
           .map(cs => cs.student_id);
         const clsGrades = (grades || [])
@@ -167,10 +182,11 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {[
           { label: "Total Students",  value: stats.totalStudents,  icon: Users,          color: "bg-green-50 text-primary",    action: () => navigate("/students") },
-          { label: "Teaching Staff",  value: stats.totalStaff,     icon: UserCheck,      color: "bg-amber-50 text-secondary",  action: () => navigate("/staff")    },
+          { label: "Teaching Staff",  value: stats.totalStaff,     icon: UserCheck,      color: "bg-amber-50 text-secondary",  action: () => navigate("/staff"),  hideFor: "teacher" },
           { label: "Classes",         value: stats.totalClasses,   icon: BookOpen,       color: "bg-blue-50 text-blue-600",    action: () => navigate("/setup")    },
           { label: "Active Sequence", value: stats.activeSequence?.name || "None", icon: Calendar, color: "bg-purple-50 text-purple-600", action: () => navigate("/setup") },
-        ].map(({ label, value, icon: Icon, color, action }) => (
+        ].filter(card => card.hideFor !== profile?.role)
+         .map(({ label, value, icon: Icon, color, action }) => (
           <button key={label} onClick={action}
             className="card flex items-start gap-4 text-left hover:shadow-lg transition-shadow cursor-pointer w-full">
             <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 ${color}`}>
@@ -326,7 +342,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Staff summary */}
+      {/* Staff summary - hidden for teachers, school-wide info only */}
+      {profile?.role !== "teacher" && (
       <div className="card">
         <div className="mb-4">
           <h3 className="font-display font-semibold text-gray-900 flex items-center gap-2">
@@ -350,6 +367,7 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+      )}
 
     </div>
   );
