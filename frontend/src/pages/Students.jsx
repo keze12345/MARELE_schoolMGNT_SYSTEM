@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
-  Plus, Search, Loader2, X, Pencil, Camera, User,
+  Plus, Search, Loader2, X, Pencil, Camera, User, Trash2,
   Users, List, LayoutGrid, BookOpen, ChevronDown, ChevronRight, UserPlus,
   Copy, Check, KeyRound
 } from "lucide-react";
@@ -248,6 +248,13 @@ export default function Students() {
     setPhotoFile(null); setPhotoPreview(null); setShowModal(true);
   }
 
+  async function handleDelete(s) {
+    if (!window.confirm(`Delete ${s.full_name}? This will permanently remove their records (attendance, grades, fees). This cannot be undone.`)) return;
+    const { error } = await supabase.from("students").delete().eq("id", s.id);
+    if (error) toast.error(error.message);
+    else { toast.success(`${s.full_name} deleted`); fetchAll(); }
+  }
+
   function openEdit(s) {
     setEditing(s.id);
     setForm({
@@ -364,6 +371,13 @@ export default function Students() {
               title="Edit student">
               <Pencil size={15}/>
             </button>
+            {!isUnassignedTeacher && profile?.role !== "teacher" && (
+              <button onClick={() => handleDelete(s)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                title="Delete student">
+                <Trash2 size={15}/>
+              </button>
+            )}
           </div>
         </td>
       </tr>
@@ -537,6 +551,12 @@ export default function Students() {
                                 className="p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-green-50 transition-colors">
                                 <Pencil size={14}/>
                               </button>
+                              {profile?.role !== "teacher" && (
+                                <button onClick={() => handleDelete(s)}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+                                  <Trash2 size={14}/>
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
