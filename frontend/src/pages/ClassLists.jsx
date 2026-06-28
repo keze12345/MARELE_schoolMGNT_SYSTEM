@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../context/AuthContext";
 import { Download, Loader2, Users, BookOpen, FileText, Info } from "lucide-react";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import toast from "react-hot-toast";
 
 export default function ClassLists() {
+  const { profile } = useAuth();
   const [classes,          setClasses]          = useState([]);
   const [sequences,        setSequences]        = useState([]);
   const [terms,            setTerms]            = useState([]);
@@ -16,8 +18,12 @@ export default function ClassLists() {
 
   useEffect(() => {
     async function init() {
+      let classQuery = supabase.from("classes").select("*").order("name");
+      if (profile?.role === "teacher") {
+        classQuery = classQuery.eq("teacher_id", profile.id);
+      }
       const [{ data: cls }, { data: seqs }, { data: trms }] = await Promise.all([
-        supabase.from("classes").select("*").order("name"),
+        classQuery,
         supabase.from("sequences").select("*").order("created_at"),
         supabase.from("terms").select("*").order("created_at"),
       ]);
@@ -30,8 +36,8 @@ export default function ClassLists() {
       else if ((seqs || []).length) setSelectedSequence(seqs[0].id);
       setLoading(false);
     }
-    init();
-  }, []);
+    if (profile) init();
+  }, [profile]);
 
   function getLogoDataUrl() {
     return new Promise((resolve) => {
