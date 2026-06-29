@@ -367,9 +367,9 @@ export default function Fees() {
       {/* Summary cards */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         {[
-          { label:"Total Owed",      value:fmt(totalOwed),        bg:"bg-blue-50",   text:"text-blue-700"   },
+          { label:"Total Fees",      value:fmt(totalOwed),        bg:"bg-blue-50",   text:"text-blue-700"   },
           { label:"Total Collected", value:fmt(totalPaid),        bg:"bg-green-50",  text:"text-green-700"  },
-          { label:"Outstanding",     value:fmt(totalOutstanding), bg:"bg-red-50",    text:"text-red-700"    },
+          { label:"Amount Owed",     value:fmt(fees.reduce((a,f)=>a+Math.max(0,(f.total_owed||0)-(f.total_paid||0)),0)), bg:"bg-red-50",    text:"text-red-700"    },
           { label:"Fully Paid",      value:`${paidCount} / ${students.length}`, bg:"bg-amber-50", text:"text-amber-700" },
         ].map(({ label, value, bg, text }) => (
           <div key={label} className={`card p-4 ${bg}`}>
@@ -482,7 +482,7 @@ export default function Fees() {
                           <tr className="text-left text-gray-400 border-b border-gray-100 bg-gray-50/50">
                             <th className="py-2.5 px-4 font-medium">Student</th>
                             <th className="py-2.5 px-4 font-medium">Level</th>
-                            <th className="py-2.5 px-4 font-medium">Total Owed</th>
+                            <th className="py-2.5 px-4 font-medium">Total Fees</th>
                             <th className="py-2.5 px-4 font-medium">Paid</th>
                             <th className="py-2.5 px-4 font-medium">Balance</th>
                             <th className="py-2.5 px-4 font-medium">Status</th>
@@ -751,7 +751,7 @@ export default function Fees() {
               <div className="font-semibold text-gray-800">{showHistory.student.full_name}</div>
               <div className="text-xs text-gray-500">{showHistory.student.class_level} · {selectedYearName}</div>
               <div className="grid grid-cols-3 gap-3 mt-3 text-center">
-                <div><div className="text-sm font-bold text-gray-800">{fmt(showHistory.total_owed)}</div><div className="text-xs text-gray-400">Total Owed</div></div>
+                <div><div className="text-sm font-bold text-gray-800">{fmt(showHistory.total_owed)}</div><div className="text-xs text-gray-400">Total Fees</div></div>
                 <div><div className="text-sm font-bold text-green-600">{fmt(showHistory.total_paid)}</div><div className="text-xs text-gray-400">Total Paid</div></div>
                 <div>
                   <div className={`text-sm font-bold ${(showHistory.total_owed-showHistory.total_paid)>0?"text-red-500":"text-green-600"}`}>
@@ -812,8 +812,46 @@ export default function Fees() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" onClick={() => setShowStructModal(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
-              <h2 className="font-display font-bold text-gray-900">Add Fee Component</h2>
+              <div>
+                <h2 className="font-display font-bold text-gray-900">Manage Fee Components</h2>
+                <p className="text-xs text-gray-400 mt-0.5">{selectedYearName}</p>
+              </div>
               <button onClick={() => setShowStructModal(false)} className="text-gray-400 hover:text-gray-600"><X size={18}/></button>
+            </div>
+
+            {/* Existing components for this year */}
+            {feeStructures.length > 0 && (
+              <div className="border border-gray-100 rounded-xl overflow-hidden">
+                <div className="bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  Existing Components
+                </div>
+                <div className="divide-y divide-gray-50 max-h-48 overflow-y-auto">
+                  {feeStructures.map(fc => (
+                    <div key={fc.id} className="flex items-center justify-between px-3 py-2">
+                      <div>
+                        <div className="text-sm font-medium text-gray-800">{fc.component}</div>
+                        <div className="text-xs text-gray-400">{fc.level_group}</div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-sm font-bold text-green-600">{fmt(fc.amount)}</div>
+                        <button type="button"
+                          onClick={async () => {
+                            if (!window.confirm("Delete this component?")) return;
+                            await supabase.from("fee_structures").delete().eq("id", fc.id);
+                            toast.success("Component deleted"); fetchAll();
+                          }}
+                          className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="border-t border-gray-100 pt-3">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Add New Component</p>
             </div>
             <form onSubmit={handleAddStruct} className="space-y-3">
               <div>
