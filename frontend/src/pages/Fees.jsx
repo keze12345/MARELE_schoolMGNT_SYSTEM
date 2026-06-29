@@ -780,7 +780,25 @@ export default function Fees() {
                     <div className="text-xs text-gray-400">{p.payment_date}</div>
                     {p.notes && <div className="text-xs text-gray-400 italic mt-0.5">{p.notes}</div>}
                   </div>
-                  <div className="font-bold text-green-600 text-sm">{fmt(p.amount)}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="font-bold text-green-600 text-sm">{fmt(p.amount)}</div>
+                    <button
+                      onClick={async () => {
+                        if (!window.confirm("Delete this payment? This will reduce the total paid.")) return;
+                        const { error } = await supabase.from("fee_payments").delete().eq("id", p.id);
+                        if (error) { toast.error(error.message); return; }
+                        await supabase.from("student_fees")
+                          .update({ total_paid: Math.max(0, (showHistory.total_paid || 0) - p.amount) })
+                          .eq("id", showHistory.id);
+                        toast.success("Payment deleted");
+                        fetchAll();
+                        setShowHistory(null);
+                      }}
+                      className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Delete payment">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

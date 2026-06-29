@@ -33,6 +33,7 @@ export default function Dashboard() {
   const [sectionSplit, setSectionSplit] = useState([]);
   const [topClasses, setTopClasses] = useState([]);
   const [staffByRole, setStaffByRole] = useState([]);
+  const [feeStats, setFeeStats] = useState({ totalOwed:0, totalPaid:0, paidCount:0, partialCount:0, unpaidCount:0 });
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -46,6 +47,7 @@ export default function Dashboard() {
       { data: sequences },
       { data: classStudents },
       { data: grades },
+      { data: feeData },
     ] = await Promise.all([
       supabase.from("students").select("id, full_name, class_level, gender, section, created_at, photo_url").order("created_at", { ascending: false }),
       supabase.from("profiles").select("id, role, full_name, gender"),
@@ -54,6 +56,7 @@ export default function Dashboard() {
       supabase.from("sequences").select("*").order("created_at", { ascending: false }),
       supabase.from("class_students").select("class_id, student_id"),
       supabase.from("grades").select("student_id, subject_id, sequence_id, score"),
+      supabase.from("student_fees").select("total_owed, total_paid"),
     ]);
 
 
@@ -75,6 +78,16 @@ export default function Dashboard() {
     const activeSeq  = (sequences || []).find(s => s.is_active) || (sequences || [])[0];
 
     // Stats
+    // Calculate real fee stats
+    const feeRows = feeData || [];
+    setFeeStats({
+      totalOwed:    feeRows.reduce((a,b) => a + (parseFloat(b.total_owed)||0), 0),
+      totalPaid:    feeRows.reduce((a,b) => a + (parseFloat(b.total_paid)||0), 0),
+      paidCount:    feeRows.filter(f => parseFloat(f.total_paid) >= parseFloat(f.total_owed) && parseFloat(f.total_owed) > 0).length,
+      partialCount: feeRows.filter(f => parseFloat(f.total_paid) > 0 && parseFloat(f.total_paid) < parseFloat(f.total_owed)).length,
+      unpaidCount:  feeRows.filter(f => parseFloat(f.total_paid) === 0 && parseFloat(f.total_owed) > 0).length,
+    });
+
     setStats({
       totalStudents:  (scopedStudents || []).length,
       totalStaff:     (scopedStaff || []).filter(s => s.role !== "admin").length,
@@ -185,6 +198,9 @@ export default function Dashboard() {
           { label: "Teaching Staff",  value: stats.totalStaff,     icon: UserCheck,      color: "bg-amber-50 text-secondary",  action: () => navigate("/staff"),  hideFor: "teacher" },
           { label: "Classes",         value: stats.totalClasses,   icon: BookOpen,       color: "bg-blue-50 text-blue-600",    action: () => navigate("/setup")    },
           { label: "Active Sequence", value: stats.activeSequence?.name || "None", icon: Calendar, color: "bg-purple-50 text-purple-600", action: () => navigate("/setup") },
+          { label: "Fees Collected",  value: new Intl.NumberFormat("fr-CM",{style:"currency",currency:"XAF",minimumFractionDigits:0}).format(feeStats.totalPaid),  icon: Receipt, color: "bg-green-50 text-green-700", action: () => navigate("/fees"), hideFor: "teacher" },
+          { label: "Outstanding",     value: new Intl.NumberFormat("fr-CM",{style:"currency",currency:"XAF",minimumFractionDigits:0}).format(Math.max(0,feeStats.totalOwed-feeStats.totalPaid)), icon: Receipt, color: "bg-red-50 text-red-600", action: () => navigate("/fees"), hideFor: "teacher" },
+          { label: "Fully Paid",      value: feeStats.paidCount + " students", icon: UserCheck, color: "bg-blue-50 text-blue-600", action: () => navigate("/fees"), hideFor: "teacher" },
         ].filter(card => card.hideFor !== profile?.role)
          .map(({ label, value, icon: Icon, color, action }) => (
           <button key={label} onClick={action}
