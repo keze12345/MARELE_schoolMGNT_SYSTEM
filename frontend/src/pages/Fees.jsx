@@ -820,13 +820,13 @@ export default function Fees() {
             </div>
 
             {/* Existing components for this year */}
-            {feeStructures.length > 0 && (
+            {structures.length > 0 && (
               <div className="border border-gray-100 rounded-xl overflow-hidden">
                 <div className="bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   Existing Components
                 </div>
                 <div className="divide-y divide-gray-50 max-h-48 overflow-y-auto">
-                  {feeStructures.map(fc => (
+                  {structures.map(fc => (
                     <div key={fc.id} className="flex items-center justify-between px-3 py-2">
                       <div>
                         <div className="text-sm font-medium text-gray-800">{fc.component}</div>
