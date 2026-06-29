@@ -3,7 +3,7 @@ import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
 import {
   GraduationCap, Users, UserCheck, TrendingUp,
-  BookOpen, Bell, ArrowUpRight, Loader2, Calendar
+  BookOpen, Bell, ArrowUpRight, Loader2, Calendar, Receipt
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
