@@ -263,7 +263,7 @@ export default function Dashboard() {
                   </Pie>
                   <Tooltip/>
                 </PieChart>
-              </ResponsiveContainer>
+              </ResponsiveContainer>}
             </div>
             <div className="flex gap-2">
               {sectionSplit.map(s => (
