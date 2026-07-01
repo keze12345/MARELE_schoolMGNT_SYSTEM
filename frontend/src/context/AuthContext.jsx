@@ -8,23 +8,33 @@ export function AuthProvider({ children }) {
   const [user,    setUser]    = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [theme,   setThemeState] = useState(() => localStorage.getItem("mareli_theme") || "light");
+  const [theme,   setThemeState] = useState(() => {
+    try { return localStorage.getItem("mareli_theme") || "light"; }
+    catch { return "light"; }
+  });
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", theme === "dark");
   }, [theme]);
 
   useEffect(() => {
+    let initialSessionChecked = false;
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      initialSessionChecked = true;
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
       else setLoading(false);
     });
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Skip the first null firing on Safari before getSession resolves
+      if (!initialSessionChecked && !session) return;
       setUser(session?.user ?? null);
       if (session?.user) fetchProfile(session.user.id);
       else { setProfile(null); setLoading(false); }
     });
+
     return () => subscription.unsubscribe();
   }, []);
 
