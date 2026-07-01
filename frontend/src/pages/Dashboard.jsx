@@ -252,7 +252,7 @@ export default function Dashboard() {
           <div className="space-y-4">
             <div>
               <p className="text-xs font-medium text-gray-500 mb-1">By Gender</p>
-              <ResponsiveContainer width="100%" height={120}>
+              {genderSplit.length > 0 && <ResponsiveContainer width="100%" height={120}>
                 <PieChart>
                   <Pie data={genderSplit} dataKey="value" nameKey="name"
                     cx="50%" cy="50%" outerRadius={50} label={({name,value})=>`${name}: ${value}`}
