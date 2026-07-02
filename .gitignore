@@ -1,1 +1,13 @@
-node_modules/
+# Heavy directories everywhere
+**/build/
+**/.dart_tool/
+**/node_modules/
+**/.gradle/
+
+# Specific development/IDE files
+*.iml
+.idea/
+.packages
+.pub-cache/
+.pub/
+local.properties
