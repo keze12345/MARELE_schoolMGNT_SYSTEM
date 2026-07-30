@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
-import { Loader2, Printer, Info, ChevronLeft, FileText, Save } from "lucide-react";
+import { Loader2, Printer, Info, ChevronLeft, FileText, Save, Download } from "lucide-react";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import toast from "react-hot-toast";
 
 const SCHOOL_NAME = "SS. Mary and Elizabeth Nursery and Primary Academy";
@@ -45,6 +47,9 @@ export default function ReportCards() {
   const [loading,   setLoading]   = useState(false);
   const [initLoading, setInitLoading] = useState(true);
   const [viewMode,  setViewMode]  = useState("list");
+  const [isHoliday, setIsHoliday] = useState(false);
+  const [batchGenerating, setBatchGenerating] = useState(false);
+  const [batchProgress, setBatchProgress] = useState("");
   const [activeStudent, setActiveStudent] = useState(null);
   const [cardData,  setCardData]  = useState(null);
   const [cardLoading, setCardLoading] = useState(false);
@@ -319,7 +324,7 @@ export default function ReportCards() {
                 <div style={{ fontSize:"11px", color:"#555", marginTop:"2px" }}>"{SCHOOL_MOTTO}"</div>
                 <div style={{ fontSize:"11px", color:"#555" }}>{SCHOOL_LOCATION}</div>
                 <div style={{ fontSize:"13px", fontWeight:"bold", color:"#8B1A1A", marginTop:"4px", textTransform:"uppercase", letterSpacing:"1px" }}>
-                  PUPIL'S REPORT CARD — {selectedTermObj?.name?.toUpperCase()} · {CURRENT_YEAR}
+                  {isHoliday ? "HOLIDAY SCHOOL REPORT CARD · 2026" : `PUPIL'S REPORT CARD — ${selectedTermObj?.name?.toUpperCase()} · ${CURRENT_YEAR}`}
                 </div>
               </div>
               {activeStudent.photo_url ? (
@@ -352,7 +357,7 @@ export default function ReportCards() {
                   <td style={{ padding:"3px 8px 3px 0", color:"#555" }}>Acte de Naissance No:</td>
                   <td style={{ padding:"3px 8px", borderBottom:"1px solid #ccc" }}>{activeStudent.birth_certificate_no || "—"}</td>
                   <td style={{ padding:"3px 8px 3px 12px", color:"#555" }}>Academic Year:</td>
-                  <td style={{ padding:"3px 0", borderBottom:"1px solid #ccc" }}>{CURRENT_YEAR}</td>
+                  <td style={{ padding:"3px 0", borderBottom:"1px solid #ccc" }}>{isHoliday ? "2026" : CURRENT_YEAR}</td>
                 </tr>
                 <tr>
                   <td style={{ padding:"3px 8px 3px 0", color:"#555" }}>Parent/Guardian:</td>
@@ -563,14 +568,285 @@ export default function ReportCards() {
     );
   }
 
+  // ===================== BATCH PDF =====================
+  async function generateBatchPDF() {
+    if (!students.length) { toast.error("No students in this class"); return; }
+    if (!termSequences.length) { toast.error("No sequences for this term"); return; }
+    setBatchGenerating(true);
+
+    const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+    const cls = selectedClassObj;
+    const term = selectedTermObj;
+
+    for (let i = 0; i < students.length; i++) {
+      const s = students[i];
+      setBatchProgress(`Generating ${i + 1} of ${students.length}: ${s.full_name}...`);
+
+      // Build card data for this student
+      const [{ data: subs }, { data: grades }, { data: allClassGrades }, { data: remark }] = await Promise.all([
+        supabase.from("subjects").select("*").eq("class_id", selectedClass).order("name"),
+        supabase.from("grades").select("subject_id, sequence_id, score")
+          .eq("student_id", s.id).in("sequence_id", termSequences.map(seq => seq.id)),
+        supabase.from("grades").select("student_id, subject_id, sequence_id, score")
+          .in("sequence_id", termSequences.map(seq => seq.id)),
+        supabase.from("remarks").select("*").eq("student_id", s.id).eq("term_id", selectedTerm).maybeSingle(),
+      ]);
+
+      const subjects = subs || [];
+      const scoreMatrix = {};
+      subjects.forEach(sub => {
+        scoreMatrix[sub.id] = {};
+        termSequences.forEach(seq => { scoreMatrix[sub.id][seq.id] = null; });
+      });
+      (grades || []).forEach(g => {
+        if (scoreMatrix[g.subject_id]) scoreMatrix[g.subject_id][g.sequence_id] = g.score;
+      });
+      const subjectAverages = {};
+      subjects.forEach(sub => {
+        const vals = termSequences.map(seq => scoreMatrix[sub.id][seq.id]).filter(v => v !== null);
+        subjectAverages[sub.id] = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
+      });
+      let totalPoints = 0, totalCoeff = 0;
+      subjects.forEach(sub => {
+        const avg = subjectAverages[sub.id];
+        if (avg !== null) { totalPoints += avg * sub.coefficient; totalCoeff += sub.coefficient; }
+      });
+      const overallAvg = totalCoeff ? totalPoints / totalCoeff : null;
+
+      // Rank
+      const allAvgs = await Promise.all(students.map(async st => {
+        if (st.id === s.id) return { id: st.id, avg: overallAvg };
+        const stGrades = (allClassGrades||[]).filter(g => g.student_id===st.id && termSequences.map(sq=>sq.id).includes(g.sequence_id));
+        const stSubAvgs = {};
+        subjects.forEach(sub => {
+          const vals = termSequences.map(seq => stGrades.find(g=>g.subject_id===sub.id&&g.sequence_id===seq.id)?.score).filter(v=>v!==null&&v!==undefined);
+          stSubAvgs[sub.id] = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
+        });
+        let tp=0,tc=0;
+        subjects.forEach(sub=>{ if(stSubAvgs[sub.id]!==null){tp+=stSubAvgs[sub.id]*sub.coefficient;tc+=sub.coefficient;} });
+        return { id: st.id, avg: tc ? tp/tc : null };
+      }));
+      const sorted = allAvgs.filter(a=>a.avg!==null).sort((a,b)=>b.avg-a.avg);
+      const rank = sorted.findIndex(a=>a.id===s.id)+1;
+
+      // Group subjects by domain
+      const grouped = {};
+      DOMAIN_ORDER.forEach(d => { grouped[d] = []; });
+      subjects.forEach(sub => {
+        const d = sub.domain || "General";
+        if (!grouped[d]) grouped[d] = [];
+        grouped[d].push(sub);
+      });
+
+      // Build HTML for this card
+      const cardHtml = document.createElement("div");
+      cardHtml.style.cssText = "width:794px;background:white;padding:0;margin:0;font-family:Georgia,serif;position:absolute;left:-9999px;top:0;box-sizing:border-box;";
+
+      // Convert logo to base64
+      const logoBase64 = await new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          const c = document.createElement("canvas");
+          c.width = img.width; c.height = img.height;
+          c.getContext("2d").drawImage(img, 0, 0);
+          resolve(c.toDataURL("image/png"));
+        };
+        img.onerror = () => resolve("");
+        img.src = "/logo_ma.png";
+      });
+
+      // Convert student photo to base64
+      const studentPhotoBase64 = s.photo_url ? await new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          const c = document.createElement("canvas");
+          c.width = img.width; c.height = img.height;
+          c.getContext("2d").drawImage(img, 0, 0);
+          resolve(c.toDataURL("image/png"));
+        };
+        img.onerror = () => resolve("");
+        img.src = s.photo_url;
+      }) : null;
+
+      const isFemale = s.gender === "female";
+
+      // Gender avatar SVG
+      const maleAvatarSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80"><rect width="80" height="80" rx="8" fill="#1a6b3c"/><circle cx="40" cy="27" r="15" fill="white" opacity="0.9"/><ellipse cx="40" cy="70" rx="24" ry="17" fill="white" opacity="0.9"/></svg>`;
+      const femaleAvatarSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" width="80" height="80"><rect width="80" height="80" rx="8" fill="#e63946"/><circle cx="40" cy="27" r="15" fill="white" opacity="0.9"/><ellipse cx="40" cy="75" rx="26" ry="20" fill="white" opacity="0.9"/><ellipse cx="40" cy="57" rx="18" ry="11" fill="white" opacity="0.85"/></svg>`;
+
+      const photoHtml = studentPhotoBase64
+        ? `<img src="${studentPhotoBase64}" style="width:80px;height:80px;border-radius:8px;object-fit:cover;border:2px solid #1a6b3c;flex-shrink:0;" />`
+        : `<div style="width:80px;height:80px;flex-shrink:0;">${isFemale ? femaleAvatarSvg : maleAvatarSvg}</div>`;
+
+      const logoHtml = logoBase64
+        ? `<img src="${logoBase64}" style="width:80px;height:80px;object-fit:contain;flex-shrink:0;" />`
+        : `<div style="width:80px;height:80px;flex-shrink:0;"></div>`;
+
+      const watermarkHtml = logoBase64
+        ? `<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-20deg);pointer-events:none;z-index:0;"><img src="${logoBase64}" style="width:420px;height:420px;object-fit:contain;opacity:0.055;" /></div>`
+        : "";
+
+      cardHtml.innerHTML = `
+        <div style="position:relative;width:794px;padding:24px;box-sizing:border-box;background:white;">
+          ${watermarkHtml}
+          <div style="position:relative;z-index:1;">
+        <div style="display:flex;align-items:center;gap:16px;border-bottom:3px double #1a6b3c;padding-bottom:12px;margin-bottom:12px;">
+          ${logoHtml}
+          <div style="flex:1;text-align:center;">
+            <div style="font-size:15px;font-weight:bold;color:#1a6b3c;text-transform:uppercase;letter-spacing:0.5px">${SCHOOL_NAME}</div>
+            <div style="font-size:11px;color:#555;">"${SCHOOL_MOTTO}"</div>
+            <div style="font-size:11px;color:#555;">${SCHOOL_LOCATION}</div>
+            <div style="font-size:13px;font-weight:bold;color:#8B1A1A;margin-top:4px;text-transform:uppercase;letter-spacing:1px">
+              ${isHoliday ? "HOLIDAY SCHOOL REPORT CARD · 2026" : `PUPIL'S REPORT CARD — ${term?.name?.toUpperCase()} · ${CURRENT_YEAR}`}
+            </div>
+          </div>
+          ${photoHtml}
+        </div>
+        <table style="width:100%;font-size:11px;margin-bottom:12px;border-collapse:collapse;">
+          <tr>
+            <td style="padding:3px 8px 3px 0;color:#555;width:25%">Pupil's Name:</td>
+            <td style="padding:3px 8px;font-weight:bold;border-bottom:1px solid #ccc;width:35%">${s.full_name}</td>
+            <td style="padding:3px 8px 3px 12px;color:#555;width:15%">Class:</td>
+            <td style="padding:3px 0;font-weight:bold;border-bottom:1px solid #ccc">${cls?.name} (${cls?.level})</td>
+          </tr>
+          <tr>
+            <td style="padding:3px 8px 3px 0;color:#555">Date of Birth:</td>
+            <td style="padding:3px 8px;border-bottom:1px solid #ccc">${s.date_of_birth||"—"}</td>
+            <td style="padding:3px 8px 3px 12px;color:#555">Gender:</td>
+            <td style="padding:3px 0;border-bottom:1px solid #ccc;text-transform:capitalize">${s.gender}</td>
+          </tr>
+          <tr>
+            <td style="padding:3px 8px 3px 0;color:#555">Academic Year:</td>
+            <td style="padding:3px 8px;border-bottom:1px solid #ccc">${isHoliday ? "2026" : CURRENT_YEAR}</td>
+            <td style="padding:3px 8px 3px 12px;color:#555">Contact:</td>
+            <td style="padding:3px 0;border-bottom:1px solid #ccc">${s.parent_phone||"—"}</td>
+          </tr>
+        </table>
+        <table style="width:100%;font-size:10px;border-collapse:collapse;margin-bottom:12px;">
+          <thead>
+            <tr style="background:#1a6b3c;color:white;">
+              <th style="padding:6px 8px;text-align:left;border:1px solid #155a33;width:28%">SUBJECT</th>
+              <th style="padding:6px 4px;text-align:center;border:1px solid #155a33;width:8%">COEFF</th>
+              ${termSequences.map(seq=>`<th style="padding:6px 4px;text-align:center;border:1px solid #155a33;width:10%">${seq.name}<br/><span style="font-weight:normal;font-size:9px">/20</span></th>`).join("")}
+              <th style="padding:6px 4px;text-align:center;border:1px solid #155a33;width:10%;background:#145c30">TERM AVG<br/><span style="font-weight:normal;font-size:9px">/20</span></th>
+              <th style="padding:6px 4px;text-align:center;border:1px solid #155a33;width:10%;background:#2d5a8e">CLASS AVG<br/><span style="font-weight:normal;font-size:9px">/20</span></th>
+              <th style="padding:6px 4px;text-align:center;border:1px solid #155a33;width:10%;background:#7a5200">HIGHEST<br/><span style="font-weight:normal;font-size:9px">/20</span></th>
+              <th style="padding:6px 4px;text-align:center;border:1px solid #155a33;width:8%">GRADE</th>
+              <th style="padding:6px 4px;text-align:center;border:1px solid #155a33;width:12%">REMARK</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${DOMAIN_ORDER.map(domain => {
+              const domainSubs = grouped[domain]||[];
+              if (!domainSubs.length) return "";
+              return `
+                <tr><td colspan="${7+termSequences.length}" style="padding:4px 8px;background:#f0f7f0;font-weight:bold;font-size:10px;color:#1a6b3c;border:1px solid #ddd;text-transform:uppercase">${domain}</td></tr>
+                ${domainSubs.map((sub,idx) => {
+                  const avg = subjectAverages[sub.id];
+                  const g = gradeInfo(avg);
+                  return `<tr style="background:${idx%2===0?"white":"#fafafa"}">
+                    <td style="padding:5px 8px;border:1px solid #e0e0e0">${sub.name}</td>
+                    <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;color:#666">${sub.coefficient}</td>
+                    ${termSequences.map(seq=>`<td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;font-weight:500">${scoreMatrix[sub.id][seq.id]!==null?scoreMatrix[sub.id][seq.id]:"—"}</td>`).join("")}
+                    <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;font-weight:bold;color:${g.color};background:#f0fff4">${avg!==null?avg.toFixed(2):"—"}</td>
+                    <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;color:#2d5a8e;background:#f0f4ff">—</td>
+                    <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;color:#7a5200;background:#fffbf0">—</td>
+                    <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;font-weight:bold;color:${g.color}">${g.letter}</td>
+                    <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;color:${g.color};font-size:9px">${g.remark}</td>
+                  </tr>`;
+                }).join("")}`;
+            }).join("")}
+          </tbody>
+          <tfoot>
+            <tr style="background:#1a6b3c;color:white;font-weight:bold;">
+              <td colspan="${2}" style="padding:6px 8px;border:1px solid #155a33;text-align:right">OVERALL TERM AVERAGE</td>
+              ${termSequences.map(()=>`<td style="border:1px solid #155a33"></td>`).join("")}
+              <td style="padding:6px 4px;text-align:center;border:1px solid #155a33;font-size:13px">${overallAvg!==null?overallAvg.toFixed(2):"—"}</td>
+              <td style="padding:6px 4px;text-align:center;border:1px solid #155a33;background:rgba(0,0,0,0.15)">—</td>
+              <td style="border:1px solid #155a33"></td>
+              <td style="padding:6px 4px;text-align:center;border:1px solid #155a33;font-size:13px">${gradeInfo(overallAvg).letter}</td>
+              <td style="padding:6px 4px;text-align:center;border:1px solid #155a33">Rank: ${rank||"—"} / ${students.length}</td>
+            </tr>
+          </tfoot>
+        </table>
+        <table style="width:100%;font-size:11px;border-collapse:collapse;margin-bottom:16px;">
+          <tr>
+            <td style="width:20%;padding:6px 8px;background:#f0f7f0;font-weight:bold;border:1px solid #ccc;color:#1a6b3c">Conduct:</td>
+            <td style="padding:6px 8px;border:1px solid #ccc;width:30%">${remark?.conduct||"—"}</td>
+            <td style="width:20%;padding:6px 8px;background:#f0f7f0;font-weight:bold;border:1px solid #ccc;color:#1a6b3c">Class Position:</td>
+            <td style="padding:6px 8px;border:1px solid #ccc;font-weight:bold;text-align:center">${rank||"—"} out of ${students.length}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 8px;background:#f0f7f0;font-weight:bold;border:1px solid #ccc;color:#1a6b3c;vertical-align:top">Class Teacher's Remark:</td>
+            <td colspan="3" style="padding:6px 8px;border:1px solid #ccc;min-height:36px">${remark?.teacher_remark||"—"}</td>
+          </tr>
+          <tr>
+            <td style="padding:6px 8px;background:#f0f7f0;font-weight:bold;border:1px solid #ccc;color:#1a6b3c;vertical-align:top">Head Teacher's Remark:</td>
+            <td colspan="3" style="padding:6px 8px;border:1px solid #ccc;min-height:36px">${remark?.headteacher_remark||"—"}</td>
+          </tr>
+        </table>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;font-size:11px;margin-top:8px;">
+          <div style="text-align:center"><div style="border-top:1px solid #333;padding-top:4px;margin-top:40px">Class Teacher's Signature</div></div>
+          <div style="text-align:center"><div style="border-top:1px solid #333;padding-top:4px;margin-top:40px">Parent / Guardian's Signature</div></div>
+          <div style="text-align:center"><div style="border-top:1px solid #333;padding-top:4px;margin-top:40px">Head Teacher's Signature & Stamp</div></div>
+        </div>
+        <div style="margin-top:16px;padding:8px;background:#f9f9f9;border:1px solid #e0e0e0;border-radius:6px;font-size:9px;color:#666;">
+          <strong>GRADE KEY:</strong> A (80–100%) = Excellent | B (65–79%) = Very Good | C (50–64%) = Good | D (40–49%) = Fair | F (&lt;40%) = Needs Improvement
+        </div>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(cardHtml);
+      await new Promise(r => setTimeout(r, 100));
+
+      const canvas = await html2canvas(cardHtml, { scale: 2, useCORS: true, allowTaint: true, backgroundColor: "#ffffff" });
+      const imgData = canvas.toDataURL("image/jpeg", 0.92);
+
+      const pdfW = pdf.internal.pageSize.getWidth();
+      const pdfH = pdf.internal.pageSize.getHeight();
+      // Scale to full page width, start at top (y=0), no margins
+      const imgW = pdfW;
+      const imgH = (canvas.height * pdfW) / canvas.width;
+
+      if (i > 0) pdf.addPage();
+      pdf.addImage(imgData, "JPEG", 0, 0, imgW, imgH);
+
+      document.body.removeChild(cardHtml);
+    }
+
+    const clsName = selectedClassObj?.name?.replace(/\s+/g,"_") || "Class";
+    const termName = isHoliday ? "Holiday_2026" : (selectedTermObj?.name?.replace(/\s+/g,"_") || "Term");
+    pdf.save(`MARELI_${clsName}_${termName}_ReportCards.pdf`);
+    setBatchGenerating(false);
+    setBatchProgress("");
+    toast.success(`${students.length} report cards downloaded!`);
+  }
+
   // ===================== LIST VIEW =====================
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-display font-bold text-gray-900">Report Cards</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Select a class and term, then click a student to generate their report card</p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-display font-bold text-gray-900">Report Cards</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Select a class and term, then click a student to generate their report card</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => setIsHoliday(h => !h)}
+            className={`flex items-center gap-2 text-sm px-4 py-2 rounded-xl border font-medium transition-all ${isHoliday ? "bg-amber-500 text-white border-amber-500" : "bg-white text-gray-600 border-gray-200 hover:border-amber-400 hover:text-amber-600"}`}>
+            {isHoliday ? "🏖 Holiday School ON" : "📋 Regular Term"}
+          </button>
+          <button onClick={generateBatchPDF}
+            disabled={batchGenerating || students.length === 0 || termSequences.length === 0}
+            className="btn-primary flex items-center gap-2 text-sm disabled:opacity-50">
+            {batchGenerating
+              ? <><Loader2 size={14} className="animate-spin"/> {batchProgress}</>
+              : <><Download size={14}/> Download All ({students.length}) as PDF</>}
+          </button>
+        </div>
       </div>
-
       <div className="card p-4 flex flex-wrap gap-4 items-center">
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1">Class</label>
