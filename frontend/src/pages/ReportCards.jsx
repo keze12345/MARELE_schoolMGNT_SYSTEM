@@ -613,6 +613,21 @@ export default function ReportCards() {
       });
       const overallAvg = totalCoeff ? totalPoints / totalCoeff : null;
 
+      // Class-wide per-subject stats (average & highest across all students)
+      const classSubjectStats = {};
+      subjects.forEach(sub => {
+        const perStudentAvgs = students.map(st => {
+          const stVals = termSequences
+            .map(seq => (allClassGrades||[]).find(g => g.student_id===st.id && g.subject_id===sub.id && g.sequence_id===seq.id)?.score)
+            .filter(v => v !== null && v !== undefined);
+          return stVals.length ? stVals.reduce((a,b)=>a+b,0)/stVals.length : null;
+        }).filter(v => v !== null);
+        classSubjectStats[sub.id] = {
+          classAvg: perStudentAvgs.length ? perStudentAvgs.reduce((a,b)=>a+b,0)/perStudentAvgs.length : null,
+          highest:  perStudentAvgs.length ? Math.max(...perStudentAvgs) : null,
+        };
+      });
+
       // Rank
       const allAvgs = await Promise.all(students.map(async st => {
         if (st.id === s.id) return { id: st.id, avg: overallAvg };
@@ -640,7 +655,7 @@ export default function ReportCards() {
 
       // Build HTML for this card
       const cardHtml = document.createElement("div");
-      cardHtml.style.cssText = "width:794px;background:white;padding:0;margin:0;font-family:Georgia,serif;position:absolute;left:-9999px;top:0;box-sizing:border-box;";
+      cardHtml.style.cssText = "width:794px;background:white;padding:24px;margin:0;font-family:Georgia,serif;position:absolute;left:-9999px;top:0;box-sizing:border-box;border:1px solid #ccc;border-radius:12px;";
 
       // Convert logo to base64
       const logoBase64 = await new Promise((resolve) => {
@@ -689,7 +704,7 @@ export default function ReportCards() {
         : "";
 
       cardHtml.innerHTML = `
-        <div style="position:relative;width:794px;padding:24px;box-sizing:border-box;background:white;">
+        <div style="position:relative;width:100%;box-sizing:border-box;background:white;">
           ${watermarkHtml}
           <div style="position:relative;z-index:1;">
         <div style="display:flex;align-items:center;gap:16px;border-bottom:3px double #1a6b3c;padding-bottom:12px;margin-bottom:12px;">
@@ -707,21 +722,21 @@ export default function ReportCards() {
         <table style="width:100%;font-size:11px;margin-bottom:12px;border-collapse:collapse;">
           <tr>
             <td style="padding:3px 8px 3px 0;color:#555;width:25%">Pupil's Name:</td>
-            <td style="padding:3px 8px;font-weight:bold;border-bottom:1px solid #ccc;width:35%">${s.full_name}</td>
+            <td style="padding:3px 8px;font-weight:bold;width:35%;text-transform:uppercase;">${s.full_name}</td>
             <td style="padding:3px 8px 3px 12px;color:#555;width:15%">Class:</td>
-            <td style="padding:3px 0;font-weight:bold;border-bottom:1px solid #ccc">${cls?.name} (${cls?.level})</td>
+            <td style="padding:3px 0;font-weight:bold;">${cls?.name} (${cls?.level})</td>
           </tr>
           <tr>
             <td style="padding:3px 8px 3px 0;color:#555">Date of Birth:</td>
-            <td style="padding:3px 8px;border-bottom:1px solid #ccc">${s.date_of_birth||"—"}</td>
+            <td style="padding:3px 8px;">${s.date_of_birth||"—"}</td>
             <td style="padding:3px 8px 3px 12px;color:#555">Gender:</td>
-            <td style="padding:3px 0;border-bottom:1px solid #ccc;text-transform:capitalize">${s.gender}</td>
+            <td style="padding:3px 0;text-transform:capitalize">${s.gender}</td>
           </tr>
           <tr>
             <td style="padding:3px 8px 3px 0;color:#555">Academic Year:</td>
-            <td style="padding:3px 8px;border-bottom:1px solid #ccc">${isHoliday ? "2026" : CURRENT_YEAR}</td>
+            <td style="padding:3px 8px;">${isHoliday ? "2026" : CURRENT_YEAR}</td>
             <td style="padding:3px 8px 3px 12px;color:#555">Contact:</td>
-            <td style="padding:3px 0;border-bottom:1px solid #ccc">${s.parent_phone||"—"}</td>
+            <td style="padding:3px 0;">${s.parent_phone||"—"}</td>
           </tr>
         </table>
         <table style="width:100%;font-size:10px;border-collapse:collapse;margin-bottom:12px;">
@@ -746,13 +761,14 @@ export default function ReportCards() {
                 ${domainSubs.map((sub,idx) => {
                   const avg = subjectAverages[sub.id];
                   const g = gradeInfo(avg);
+                  const stats = classSubjectStats[sub.id] || {};
                   return `<tr style="background:${idx%2===0?"white":"#fafafa"}">
                     <td style="padding:5px 8px;border:1px solid #e0e0e0">${sub.name}</td>
                     <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;color:#666">${sub.coefficient}</td>
                     ${termSequences.map(seq=>`<td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;font-weight:500">${scoreMatrix[sub.id][seq.id]!==null?scoreMatrix[sub.id][seq.id]:"—"}</td>`).join("")}
                     <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;font-weight:bold;color:${g.color};background:#f0fff4">${avg!==null?avg.toFixed(2):"—"}</td>
-                    <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;color:#2d5a8e;background:#f0f4ff">—</td>
-                    <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;color:#7a5200;background:#fffbf0">—</td>
+                    <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;color:#2d5a8e;background:#f0f4ff">${stats.classAvg!==null&&stats.classAvg!==undefined?stats.classAvg.toFixed(2):"—"}</td>
+                    <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;color:#7a5200;background:#fffbf0">${stats.highest!==null&&stats.highest!==undefined?stats.highest.toFixed(2):"—"}</td>
                     <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;font-weight:bold;color:${g.color}">${g.letter}</td>
                     <td style="padding:5px 4px;text-align:center;border:1px solid #e0e0e0;color:${g.color};font-size:9px">${g.remark}</td>
                   </tr>`;
