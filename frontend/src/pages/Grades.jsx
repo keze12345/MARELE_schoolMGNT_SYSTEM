@@ -4,7 +4,7 @@ import { Loader2, Save, Info, Lock } from "lucide-react";
 import toast from "react-hot-toast";
 import { useAuth } from "../context/AuthContext";
 
-const CURRENT_YEAR = "2024-2025";
+// activeYear?.name || "" now comes from activeYear context
 
 function gradeInfo(score, max = 20) {
   if (score === null || score === undefined || score === "") return { letter: "—", color: "text-gray-400", bg: "" };
@@ -17,7 +17,7 @@ function gradeInfo(score, max = 20) {
 }
 
 export default function Grades() {
-  const { profile } = useAuth();
+  const { profile, activeYear, activeTerms, activeSeqs } = useAuth();
   const [classes,      setClasses]      = useState([]);
   const [sequences,    setSequences]    = useState([]);
   const [terms,        setTerms]        = useState([]);
@@ -34,21 +34,18 @@ export default function Grades() {
 
   useEffect(() => {
     async function init() {
-      let classQuery = supabase.from("classes").select("*").order("name");
+      let classQuery = supabase.from("classes").select("*").eq("academic_year_id", activeYear?.id || "none").order("name");
       if (profile?.role === "teacher") {
         classQuery = classQuery.eq("teacher_id", profile.id);
       }
 
-      const [{ data: cls }, { data: seqs }, { data: trms }] = await Promise.all([
-        classQuery,
-        supabase.from("sequences").select("*").order("created_at"),
-        supabase.from("terms").select("*").order("created_at"),
-      ]);
-      setClasses(cls   || []);
-      setSequences(seqs || []);
-      setTerms(trms    || []);
+      const [{ data: cls }] = await Promise.all([classQuery]);
+      setClasses(cls || []);
+      // Use sequences and terms from active academic year only
+      setSequences(activeSeqs || []);
+      setTerms(activeTerms || []);
 
-      const activeSeq = (seqs || []).find(s => s.is_active);
+      const activeSeq = (activeSeqs || []).find(s => s.is_active) || (activeSeqs || [])[0];
       if (activeSeq) setSelectedSequence(activeSeq.id);
 
       if ((cls || []).length > 0) setSelectedClass(cls[0].id);
@@ -183,7 +180,7 @@ export default function Grades() {
         <div>
           <h1 className="text-2xl font-display font-bold text-gray-900">Grades</h1>
           <p className="text-sm text-gray-500 mt-0.5">
-            Marks out of 20 · weighted by coefficient · {CURRENT_YEAR}
+            Marks out of 20 · weighted by coefficient · {activeYear?.name || ""}
           </p>
         </div>
         {isAdminView ? (

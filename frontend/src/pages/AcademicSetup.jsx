@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "../context/AuthContext";
 import {
   Plus, Loader2, Trash2,
   BookOpen, Calendar, Layers, Users, GraduationCap
@@ -63,6 +64,7 @@ export default function AcademicSetup() {
   const [loading,   setLoading]   = useState(true);
   const [modal,     setModal]     = useState(null);
   const [saving,    setSaving]    = useState(false);
+  const [promoting, setPromoting] = useState(false);
   const [activeTab, setActiveTab] = useState("years");
 
   const [yearForm,  setYearForm]  = useState({ name:"", program_type:"regular", start_date:"", end_date:"" });
@@ -71,6 +73,7 @@ export default function AcademicSetup() {
   const [classForm, setClassForm] = useState({ academic_year_id:"", name:"", level:"Class 1", section:"anglophone", teacher_id:"", teacher_name:"" });
   const [subForm,   setSubForm]   = useState({ class_id:"", name:"", coefficient:1 });
 
+  const { refreshAcademicContext } = useAuth();
   const API = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 
   useEffect(() => { fetchAll(); }, []);
@@ -139,7 +142,7 @@ export default function AcademicSetup() {
   async function setActive(table, id) {
     await supabase.from(table).update({ is_active: false }).neq("id", id);
     await supabase.from(table).update({ is_active: true  }).eq("id", id);
-    toast.success("Set as active!"); fetchAll();
+    toast.success("Set as active!"); fetchAll(); refreshAcademicContext();
   }
 
   async function deleteRow(table, id) {
@@ -228,6 +231,78 @@ export default function AcademicSetup() {
     { key:"classes",   label:"Classes",        icon:Users,         count:classes.length,   color:"text-purple-600" },
   ];
 
+  // ── Promote students to next class ──
+  async function promoteStudents() {
+    if (!window.confirm("This will promote all students one class up. Are you sure?")) return;
+    setPromoting(true);
+
+    const PROMOTION_MAP = {
+      "Day Care":    "Pre-Nursery",
+      "Pre-Nursery": "Nursery 1",
+      "Nursery 1":   "Nursery 2",
+      "Nursery 2":   "Class 1",
+      "Class 1":     "Class 2",
+      "Class 2":     "Class 3",
+      "Class 3":     "Class 4",
+      "Class 4":     "Class 5",
+      "Class 5":     "Class 6",
+      "Class 6":     null, // graduates
+    };
+
+    const { data: studs } = await supabase.from("students").select("id, class_level, is_repeating");
+    let promoted = 0, graduated = 0;
+
+    for (const s of (studs || [])) {
+      const nextLevel = PROMOTION_MAP[s.class_level];
+      if (nextLevel) {
+        await supabase.from("students").update({ class_level: nextLevel, is_repeating: false }).eq("id", s.id);
+        promoted++;
+      } else if (s.class_level === "Class 6") {
+        // Mark as graduated - you could add a graduated flag
+        graduated++;
+      }
+    }
+
+    toast.success(`Promoted ${promoted} students! ${graduated} Class 6 pupils have completed primary school.`);
+    setPromoting(false);
+  }
+
+  // ── Promote students to next class ──
+  async function promoteStudents() {
+    if (!window.confirm("This will promote all students one class up. Are you sure?")) return;
+    setPromoting(true);
+
+    const PROMOTION_MAP = {
+      "Day Care":    "Pre-Nursery",
+      "Pre-Nursery": "Nursery 1",
+      "Nursery 1":   "Nursery 2",
+      "Nursery 2":   "Class 1",
+      "Class 1":     "Class 2",
+      "Class 2":     "Class 3",
+      "Class 3":     "Class 4",
+      "Class 4":     "Class 5",
+      "Class 5":     "Class 6",
+      "Class 6":     null, // graduates
+    };
+
+    const { data: studs } = await supabase.from("students").select("id, class_level, is_repeating");
+    let promoted = 0, graduated = 0;
+
+    for (const s of (studs || [])) {
+      const nextLevel = PROMOTION_MAP[s.class_level];
+      if (nextLevel) {
+        await supabase.from("students").update({ class_level: nextLevel, is_repeating: false }).eq("id", s.id);
+        promoted++;
+      } else if (s.class_level === "Class 6") {
+        // Mark as graduated - you could add a graduated flag
+        graduated++;
+      }
+    }
+
+    toast.success(`Promoted ${promoted} students! ${graduated} Class 6 pupils have completed primary school.`);
+    setPromoting(false);
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center py-24 text-gray-400">
       <Loader2 className="animate-spin mr-2" size={20}/> Loading...
@@ -276,9 +351,15 @@ export default function AcademicSetup() {
               <h2 className="font-display font-semibold text-gray-800 flex items-center gap-2">
                 <GraduationCap size={18} className="text-green-600"/> Academic Years
               </h2>
-              <button onClick={() => setModal("year")} className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1">
-                <Plus size={13}/> New Year
-              </button>
+              <div className="flex gap-2">
+                <button onClick={promoteStudents} disabled={promoting}
+                  className="bg-amber-500 text-white py-1.5 px-3 text-xs rounded-xl flex items-center gap-1 hover:bg-amber-600 transition-colors disabled:opacity-50">
+                  {promoting ? <><Loader2 size={12} className="animate-spin"/> Promoting...</> : "🎓 Promote Students"}
+                </button>
+                <button onClick={() => setModal("year")} className="btn-primary py-1.5 px-3 text-xs flex items-center gap-1">
+                  <Plus size={13}/> New Year
+                </button>
+              </div>
             </div>
             <div className="p-5">
               {years.length === 0 ? (
@@ -291,6 +372,11 @@ export default function AcademicSetup() {
                       <div>
                         {y.is_active && <div className="text-xs font-semibold text-green-600 mb-0.5">● ACTIVE</div>}
                         <div className="font-semibold text-gray-800">{y.name}</div>
+                        <div className="mt-1">
+                          {y.programme_type === "holiday"
+                            ? <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium">🏖 Holiday Programme</span>
+                            : <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 font-medium">📚 Regular School</span>}
+                        </div>
                       </div>
                       <div className="flex gap-2 items-center">
                         {!y.is_active && (

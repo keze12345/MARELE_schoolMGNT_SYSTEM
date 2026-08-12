@@ -12,7 +12,7 @@ const STATUS_CONFIG = {
 };
 
 export default function Attendance() {
-  const { profile } = useAuth();
+  const { profile, activeYear } = useAuth();
   const today = new Date().toISOString().split("T")[0];
   const [classes,       setClasses]       = useState([]);
   const [selectedDate,  setSelectedDate]  = useState(today);
@@ -26,7 +26,7 @@ export default function Attendance() {
 
   useEffect(() => {
     if (!profile) return;
-    let classQuery = supabase.from("classes").select("*").order("name");
+    let classQuery = supabase.from("classes").select("*").eq("academic_year_id", activeYear?.id || "none").order("name");
     if (profile?.role === "teacher") {
       classQuery = classQuery.eq("teacher_id", profile.id);
     }

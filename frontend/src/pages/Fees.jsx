@@ -47,7 +47,7 @@ function statusInfo(paid, owed) {
 }
 
 export default function Fees() {
-  const { profile } = useAuth();
+  const { profile, activeYear } = useAuth();
   const [years,           setYears]           = useState([]);
   const [selectedYearName, setSelectedYearName] = useState("");
   const [students,   setStudents]   = useState([]);
@@ -97,14 +97,19 @@ export default function Fees() {
       { data: feeData }, { data: pmts }, { data: structs }
     ] = await Promise.all([
       supabase.from("students").select("id,full_name,class_level,gender,photo_url,parent_name,parent_phone,is_repeating").order("full_name"),
-      supabase.from("classes").select("*").order("name"),
+      supabase.from("classes").select("*").eq("academic_year_id", activeYear?.id || "none").order("name"),
       supabase.from("class_students").select("student_id,class_id"),
       supabase.from("student_fees").select("*").eq("academic_year", yearName),
       supabase.from("fee_payments").select("*").order("payment_date", { ascending:false }),
       supabase.from("fee_structures").select("*").eq("academic_year", yearName).order("level_group"),
     ]);
-    setStudents(studs    || []);
-    setClasses(cls       || []);
+    const activeClasses = cls || [];
+    const activeClassIds = activeClasses.map(c => c.id);
+    const activeCs2 = (cs || []).filter(r => activeClassIds.includes(r.class_id));
+    const activeStudentIds2 = activeCs2.map(r => r.student_id);
+    const filteredStudents2 = (studs || []).filter(s => activeStudentIds2.includes(s.id));
+    setStudents(filteredStudents2);
+    setClasses(activeClasses);
     setFees(feeData      || []);
     setPayments(pmts     || []);
     setStructures(structs|| []);

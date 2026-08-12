@@ -86,6 +86,7 @@ function CredentialsModal({ credentials, onClose }) {
 
 export default function Students() {
   const { profile } = useAuth();
+  const { activeYear } = useAuth();
   const [students,    setStudents]    = useState([]);
   const [classes,     setClasses]     = useState([]);
   const isUnassignedTeacher = profile?.role === "teacher" && classes.length === 0;
@@ -137,11 +138,17 @@ export default function Students() {
       const { data } = await studentQuery;
       studs = data || [];
     }
-    setStudents(studs || []);
-    setClasses(cls   || []);
+    const activeClasses = cls || [];
+    const activeClassIds = activeClasses.map(c => c.id);
+    const activeCs = (cs || []).filter(r => activeClassIds.includes(r.class_id));
+    const activeStudentIds = activeCs.map(r => r.student_id);
+    // Show all students linked to active year classes + unlinked students if regular year
+    const filteredStudents = (studs || []).filter(s => activeStudentIds.includes(s.id));
+    setStudents(filteredStudents);
+    setClasses(activeClasses);
     // Build map: studentId -> [classId, ...]
     const map = {};
-    (cs || []).forEach(r => {
+    activeCs.forEach(r => {
       if (!map[r.student_id]) map[r.student_id] = [];
       map[r.student_id].push(r.class_id);
     });

@@ -9,7 +9,7 @@ import toast from "react-hot-toast";
 const SCHOOL_NAME = "SS. Mary and Elizabeth Nursery and Primary Academy";
 const SCHOOL_MOTTO = "Excellence in Education";
 const SCHOOL_LOCATION = "Buea, South West Region, Cameroon";
-const CURRENT_YEAR = "2024-2025";
+// CURRENT_YEAR comes from activeYear context
 
 const DOMAIN_ORDER = [
   "Languages and Literature",
@@ -37,7 +37,7 @@ function ordinal(n) {
 }
 
 export default function ReportCards() {
-  const { profile } = useAuth();
+  const { profile, activeYear, activeTerms, activeSeqs, isHolidayYear } = useAuth();
   const [classes,   setClasses]   = useState([]);
   const [terms,     setTerms]     = useState([]);
   const [sequences, setSequences] = useState([]);
@@ -47,7 +47,8 @@ export default function ReportCards() {
   const [loading,   setLoading]   = useState(false);
   const [initLoading, setInitLoading] = useState(true);
   const [viewMode,  setViewMode]  = useState("list");
-  const [isHoliday, setIsHoliday] = useState(false);
+  // isHoliday now comes from activeYear context (isHolidayYear)
+  const isHoliday = isHolidayYear;
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchProgress, setBatchProgress] = useState("");
   const [activeStudent, setActiveStudent] = useState(null);
@@ -62,19 +63,16 @@ export default function ReportCards() {
 
   useEffect(() => {
     async function init() {
-      let classQuery = supabase.from("classes").select("*").order("name");
+      let classQuery = supabase.from("classes").select("*").eq("academic_year_id", activeYear?.id || "none").order("name");
       if (isTeacher) classQuery = classQuery.eq("teacher_id", profile.id);
 
-      const [{ data: cls }, { data: trms }, { data: seqs }] = await Promise.all([
-        classQuery,
-        supabase.from("terms").select("*").order("created_at"),
-        supabase.from("sequences").select("*").order("created_at"),
-      ]);
+      const [{ data: cls }] = await Promise.all([classQuery]);
       setClasses(cls || []);
-      setTerms(trms || []);
-      setSequences(seqs || []);
-      if ((cls || []).length)  setSelectedClass(cls[0].id);
-      if ((trms || []).length) setSelectedTerm(trms[0].id);
+      // Use only terms and sequences from the active academic year
+      setTerms(activeTerms || []);
+      setSequences(activeSeqs || []);
+      if ((cls || []).length) setSelectedClass(cls[0].id);
+      if ((activeTerms || []).length) setSelectedTerm(activeTerms[0].id);
       setInitLoading(false);
     }
     if (profile) init();
@@ -324,7 +322,7 @@ export default function ReportCards() {
                 <div style={{ fontSize:"11px", color:"#555", marginTop:"2px" }}>"{SCHOOL_MOTTO}"</div>
                 <div style={{ fontSize:"11px", color:"#555" }}>{SCHOOL_LOCATION}</div>
                 <div style={{ fontSize:"13px", fontWeight:"bold", color:"#8B1A1A", marginTop:"4px", textTransform:"uppercase", letterSpacing:"1px" }}>
-                  {isHoliday ? "HOLIDAY SCHOOL REPORT CARD · 2026" : `PUPIL'S REPORT CARD — ${selectedTermObj?.name?.toUpperCase()} · ${CURRENT_YEAR}`}
+                  {isHoliday ? "HOLIDAY SCHOOL REPORT CARD · 2026" : `PUPIL'S REPORT CARD — ${selectedTermObj?.name?.toUpperCase()} · ${activeYear?.name || ""}`}
                 </div>
               </div>
               {activeStudent.photo_url ? (
@@ -357,7 +355,7 @@ export default function ReportCards() {
                   <td style={{ padding:"3px 8px 3px 0", color:"#555" }}>Acte de Naissance No:</td>
                   <td style={{ padding:"3px 8px", borderBottom:"1px solid #ccc" }}>{activeStudent.birth_certificate_no || "—"}</td>
                   <td style={{ padding:"3px 8px 3px 12px", color:"#555" }}>Academic Year:</td>
-                  <td style={{ padding:"3px 0", borderBottom:"1px solid #ccc" }}>{isHoliday ? "2026" : CURRENT_YEAR}</td>
+                  <td style={{ padding:"3px 0", borderBottom:"1px solid #ccc" }}>{isHoliday ? (activeYear?.name || "Holiday") : (activeYear?.name || "")}</td>
                 </tr>
                 <tr>
                   <td style={{ padding:"3px 8px 3px 0", color:"#555" }}>Parent/Guardian:</td>
@@ -714,7 +712,7 @@ export default function ReportCards() {
             <div style="font-size:11px;color:#555;">"${SCHOOL_MOTTO}"</div>
             <div style="font-size:11px;color:#555;">${SCHOOL_LOCATION}</div>
             <div style="font-size:13px;font-weight:bold;color:#8B1A1A;margin-top:4px;text-transform:uppercase;letter-spacing:1px">
-              ${isHoliday ? "HOLIDAY SCHOOL REPORT CARD · 2026" : `PUPIL'S REPORT CARD — ${term?.name?.toUpperCase()} · ${CURRENT_YEAR}`}
+              ${isHoliday ? "HOLIDAY SCHOOL REPORT CARD · 2026" : `PUPIL'S REPORT CARD — ${term?.name?.toUpperCase()} · ${activeYear?.name || ""}`}
             </div>
           </div>
           ${photoHtml}
@@ -734,7 +732,7 @@ export default function ReportCards() {
           </tr>
           <tr>
             <td style="padding:3px 8px 3px 0;color:#555">Academic Year:</td>
-            <td style="padding:3px 8px;">${isHoliday ? "2026" : CURRENT_YEAR}</td>
+            <td style="padding:3px 8px;">${isHoliday ? (activeYear?.name || "Holiday") : (activeYear?.name || "")}</td>
             <td style="padding:3px 8px 3px 12px;color:#555">Contact:</td>
             <td style="padding:3px 0;">${s.parent_phone||"—"}</td>
           </tr>
@@ -850,10 +848,11 @@ export default function ReportCards() {
           <p className="text-sm text-gray-500 mt-0.5">Select a class and term, then click a student to generate their report card</p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button onClick={() => setIsHoliday(h => !h)}
-            className={`flex items-center gap-2 text-sm px-4 py-2 rounded-xl border font-medium transition-all ${isHoliday ? "bg-amber-500 text-white border-amber-500" : "bg-white text-gray-600 border-gray-200 hover:border-amber-400 hover:text-amber-600"}`}>
-            {isHoliday ? "🏖 Holiday School ON" : "📋 Regular Term"}
-          </button>
+          {isHoliday && (
+            <span className="flex items-center gap-2 text-sm px-4 py-2 rounded-xl bg-amber-100 text-amber-700 border border-amber-300 font-medium">
+              🏖 Holiday School Mode
+            </span>
+          )}
           <button onClick={generateBatchPDF}
             disabled={batchGenerating || students.length === 0 || termSequences.length === 0}
             className="btn-primary flex items-center gap-2 text-sm disabled:opacity-50">

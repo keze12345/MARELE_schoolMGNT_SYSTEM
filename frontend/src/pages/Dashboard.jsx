@@ -14,7 +14,7 @@ import { useNavigate } from "react-router-dom";
 const COLORS = ["#1a6b3c","#f5a623","#2563eb","#e63946","#7c3aed","#0891b2","#059669"];
 
 export default function Dashboard() {
-  const { profile } = useAuth();
+  const { profile, activeYear, activeTerms, activeSeqs, isHolidayYear } = useAuth();
   const navigate = useNavigate();
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -51,35 +51,39 @@ export default function Dashboard() {
     ] = await Promise.all([
       supabase.from("students").select("id, full_name, class_level, gender, section, created_at, photo_url").order("created_at", { ascending: false }),
       supabase.from("profiles").select("id, role, full_name, gender"),
-      supabase.from("classes").select("id, name, level, teacher_id"),
-      supabase.from("terms").select("*").order("created_at", { ascending: false }),
-      supabase.from("sequences").select("*").order("created_at", { ascending: false }),
+      supabase.from("classes").select("id, name, level, teacher_id, academic_year_id").eq("academic_year_id", activeYear?.id || "none"),
+supabase.from("terms").select("*").eq("academic_year_id", activeYear?.id || "none").order("created_at", { ascending: false }),
+      supabase.from("sequences").select("*").in("term_id", (activeTerms||[]).map(t=>t.id).length ? (activeTerms||[]).map(t=>t.id) : ["none"]).order("created_at", { ascending: false }),
       supabase.from("class_students").select("class_id, student_id"),
-      supabase.from("grades").select("student_id, subject_id, sequence_id, score"),
-      supabase.from("student_fees").select("total_owed, total_paid"),
+      supabase.from("grades").select("student_id, subject_id, sequence_id, score").in("sequence_id", (activeSeqs||[]).map(s=>s.id).length ? (activeSeqs||[]).map(s=>s.id) : ["none"]),
+      supabase.from("student_fees").select("total_owed, total_paid, student_id"),
     ]);
 
 
     // Teacher scoping: only their own class(es), nothing else
     let scopedClasses = classes || [];
-    let scopedStudents = students || [];
-    let scopedClassStudents = classStudents || [];
+    let scopedClassStudents = (classStudents || []).filter(cs =>
+      (classes || []).map(c => c.id).includes(cs.class_id)
+    );
+    const activeYearStudentIds = scopedClassStudents.map(cs => cs.student_id);
+    let scopedStudents = (students || []).filter(s => activeYearStudentIds.includes(s.id));
     let scopedStaff = staff || [];
 
     if (profile?.role === "teacher") {
       scopedClasses = (classes || []).filter(c => c.teacher_id === profile.id);
       const myClassIds = scopedClasses.map(c => c.id);
-      scopedClassStudents = (classStudents || []).filter(cs => myClassIds.includes(cs.class_id));
+      scopedClassStudents = scopedClassStudents.filter(cs => myClassIds.includes(cs.class_id));
       const myStudentIds = scopedClassStudents.map(cs => cs.student_id);
-      scopedStudents = (students || []).filter(s => myStudentIds.includes(s.id));
+      scopedStudents = scopedStudents.filter(s => myStudentIds.includes(s.id));
       scopedStaff = [];
     }
-    const activeTerm = (terms || []).find(t => t.is_active) || (terms || [])[0];
-    const activeSeq  = (sequences || []).find(s => s.is_active) || (sequences || [])[0];
+    const activeTerm = activeTerms?.find(t => t.is_active) || activeTerms?.[0];
+    const activeSeq  = activeSeqs?.find(s => s.is_active) || activeSeqs?.[0];
 
     // Stats
     // Calculate real fee stats
-    const feeRows = feeData || [];
+    // Only show fees for students in the active year
+    const feeRows = (feeData || []).filter(f => activeYearStudentIds.includes(f.student_id));
     setFeeStats({
       totalOwed:    feeRows.reduce((a,b) => a + (parseFloat(b.total_owed)||0), 0),
       totalPaid:    feeRows.reduce((a,b) => a + (parseFloat(b.total_paid)||0), 0),
