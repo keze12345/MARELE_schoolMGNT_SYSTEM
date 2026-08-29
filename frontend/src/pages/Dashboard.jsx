@@ -40,7 +40,7 @@ export default function Dashboard() {
   async function fetchAll() {
     setLoading(true);
     const [
-      { data: students },
+      { data: allYears },
       { data: staff },
       { data: classes },
       { data: terms },
@@ -49,7 +49,7 @@ export default function Dashboard() {
       { data: grades },
       { data: feeData },
     ] = await Promise.all([
-      supabase.from("students").select("id, full_name, class_level, gender, section, created_at, photo_url").order("created_at", { ascending: false }),
+      supabase.from("academic_years").select("*").order("created_at", { ascending: false }),
       supabase.from("profiles").select("id, role, full_name, gender"),
       supabase.from("classes").select("id, name, level, teacher_id, academic_year_id").eq("academic_year_id", activeYear?.id || "none"),
 supabase.from("terms").select("*").eq("academic_year_id", activeYear?.id || "none").order("created_at", { ascending: false }),
@@ -60,13 +60,27 @@ supabase.from("terms").select("*").eq("academic_year_id", activeYear?.id || "non
     ]);
 
 
+    // Scope everything to active academic year
+    const activeYearId = activeYear?.id;
+
+    // Fetch students scoped to active year
+    let yearStudents = [];
+    if (activeYearId) {
+      const { data: ys } = await supabase
+        .from("students")
+        .select("id, full_name, class_level, gender, section, created_at, photo_url")
+        .eq("academic_year_id", activeYearId)
+        .order("created_at", { ascending: false });
+      yearStudents = ys || [];
+    }
+
     // Teacher scoping: only their own class(es), nothing else
-    let scopedClasses = classes || [];
+    let scopedClasses = (classes || []).filter(c => !activeYearId || c.academic_year_id === activeYearId);
     let scopedClassStudents = (classStudents || []).filter(cs =>
       (classes || []).map(c => c.id).includes(cs.class_id)
     );
     const activeYearStudentIds = scopedClassStudents.map(cs => cs.student_id);
-    let scopedStudents = (students || []).filter(s => activeYearStudentIds.includes(s.id));
+    let scopedStudents = yearStudents;
     let scopedStaff = staff || [];
 
     if (profile?.role === "teacher") {

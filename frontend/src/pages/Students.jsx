@@ -85,8 +85,7 @@ function CredentialsModal({ credentials, onClose }) {
 }
 
 export default function Students() {
-  const { profile } = useAuth();
-  const { activeYear } = useAuth();
+  const { profile, activeYear } = useAuth();
   const [students,    setStudents]    = useState([]);
   const [classes,     setClasses]     = useState([]);
   const isUnassignedTeacher = profile?.role === "teacher" && classes.length === 0;
@@ -108,12 +107,20 @@ export default function Students() {
   const [credentials, setCredentials] = useState(null);
   const fileRef = useRef();
 
-  useEffect(() => { if (profile) fetchAll(); }, [profile]);
+  useEffect(() => { if (profile && activeYear !== undefined) fetchAll(); }, [profile, activeYear]);
 
   async function fetchAll() {
     setLoading(true);
+
+    // activeYear comes from useAuth context — no extra fetch needed
     let studentQuery = supabase.from("students").select("*").order("full_name");
     let classQuery   = supabase.from("classes").select("*").order("name");
+
+    // Scope students and classes to the active year only
+    if (activeYear?.id) {
+      studentQuery = studentQuery.eq("academic_year_id", activeYear.id);
+      classQuery   = classQuery.eq("academic_year_id", activeYear.id);
+    }
 
     if (profile?.role === "teacher") {
       classQuery = classQuery.eq("teacher_id", profile.id);
@@ -263,7 +270,7 @@ export default function Students() {
         toast.success("Student updated!");
       } else {
         const { data, error } = await supabase.from("students")
-          .insert([{ ...form, photo_url:null }]).select().single();
+          .insert([{ ...form, photo_url:null, academic_year_id: activeYear?.id || null }]).select().single();
         if (error) throw error;
         const photoUrl = await uploadPhoto(data.id);
         if (photoUrl) await supabase.from("students").update({ photo_url: photoUrl }).eq("id", data.id);
@@ -453,6 +460,17 @@ export default function Students() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-display font-bold text-gray-900 dark:text-white">Students</h1>
+          {activeYear && (
+            <div className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${
+              activeYear.program_type === "holiday"
+                ? "bg-amber-50 text-amber-700 border border-amber-200"
+                : "bg-green-50 text-green-700 border border-green-200"
+            }`}>
+              <span className="w-1.5 h-1.5 rounded-full bg-current inline-block"></span>
+              {activeYear.name}
+              {activeYear.program_type === "holiday" ? " · Holiday Program" : " · Regular School"}
+            </div>
+          )}
           <p className="text-sm text-gray-500 mt-0.5">{students.length} enrolled · MARELI Academy, Buea</p>
         </div>
         {!isUnassignedTeacher && (
