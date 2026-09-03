@@ -149,8 +149,10 @@ export default function Students() {
     const activeClassIds = activeClasses.map(c => c.id);
     const activeCs = (cs || []).filter(r => activeClassIds.includes(r.class_id));
     const activeStudentIds = activeCs.map(r => r.student_id);
-    // Show all students linked to active year classes + unlinked students if regular year
-    const filteredStudents = (studs || []).filter(s => activeStudentIds.includes(s.id));
+    // Show all students for active year — either linked to a class OR tagged with academic_year_id
+    const filteredStudents = (studs || []).filter(s =>
+      activeStudentIds.includes(s.id) || s.academic_year_id === activeYear?.id
+    );
     setStudents(filteredStudents);
     setClasses(activeClasses);
     // Build map: studentId -> [classId, ...]
