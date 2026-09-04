@@ -4,17 +4,31 @@ import { supabase } from "../lib/supabase";
 import {
   Plus, Search, Loader2, X, Pencil, Camera, User, Trash2,
   Users, List, LayoutGrid, BookOpen, ChevronDown, ChevronRight, UserPlus,
-  Copy, Check, KeyRound
+  Copy, Check, KeyRound, Upload, Download, FileSpreadsheet
 } from "lucide-react";
 import toast from "react-hot-toast";
 
 const NURSERY = ["Day Care","Pre-Nursery","Nursery 1","Nursery 2"];
 
 const EMPTY_FORM = {
+  // Section A - Pupil Info
   full_name:"", date_of_birth:"", gender:"male", birth_certificate_no:"",
   class_level:"Class 1", section:"anglophone", is_repeating:false,
-  quarter:"", region:"South West", parent_name:"", parent_phone:"",
-  parent_network:"mtn", parent_email:"", blood_group:"", allergies:"", photo_url:"",
+  place_of_birth:"", area_of_residence:"", region:"South West", quarter:"",
+  blood_group:"", allergies:"", photo_url:"",
+  // Section B - Parents
+  father_name:"", father_phone:"", father_occupation:"",
+  mother_name:"", mother_phone:"", mother_occupation:"",
+  guardian1_name:"", guardian1_phone:"", guardian1_relationship:"",
+  guardian2_name:"", guardian2_phone:"", guardian2_relationship:"",
+  // Legacy fields
+  parent_name:"", parent_phone:"", parent_network:"mtn", parent_email:"",
+  // Section C - Pickup
+  pickup1_name:"", pickup1_phone:"", pickup1_relationship:"",
+  pickup2_name:"", pickup2_phone:"", pickup2_relationship:"",
+  // Section D - Medical
+  has_health_concerns:false, health_concern_details:"",
+  is_on_medication:false, medication_details:"",
 };
 
 
@@ -105,7 +119,13 @@ export default function Students() {
   const [assigning,   setAssigning]   = useState(false);
   const [collapsed,   setCollapsed]   = useState({});
   const [credentials, setCredentials] = useState(null);
-  const fileRef = useRef();
+  const fileRef    = useRef();
+  const importRef  = useRef();
+  const [showImport,    setShowImport]    = useState(false);
+  const [importing,     setImporting]     = useState(false);
+  const [importResults, setImportResults] = useState(null);
+  const [importClass,   setImportClass]   = useState("");
+  const [formTab,       setFormTab]       = useState("pupil");
 
   useEffect(() => { if (profile && activeYear !== undefined) fetchAll(); }, [profile, activeYear]);
 
@@ -314,6 +334,167 @@ export default function Students() {
     setSaving(false);
   }
 
+  function downloadTemplate() {
+    // Build class list for the instructions row
+    const classList = classes.map(c => c.name).join(" | ") || "Class 1A | Class 2A | Nursery 1A";
+    const headers = ["class_name","full_name","gender","date_of_birth","place_of_birth","area_of_residence",
+      "father_name","father_phone","father_occupation",
+      "mother_name","mother_phone","mother_occupation",
+      "guardian1_name","guardian1_phone","guardian1_relationship",
+      "pickup1_name","pickup1_phone","pickup1_relationship",
+      "pickup2_name","pickup2_phone","pickup2_relationship",
+      "has_health_concerns","health_concern_details",
+      "is_on_medication","medication_details",
+      "blood_group","allergies","birth_certificate_no"];
+    const instructions = [`CLASS NAMES: ${classList}`,"","","","","","","","","","","","","","","","","","","","","","","","","",""];
+    const example = ["Class 1A","John Doe","male","2018-01-15","Buea","Molyko",
+      "Mr Doe","677000001","Engineer",
+      "Mrs Doe","677000002","Teacher",
+      "","","","","","","","","",
+      "false","","false","","O+","none","BC12345"];
+    const csv = [headers.join(","), example.join(",")].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url; a.download = "student_import_template.csv"; a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importFromExcel(file) {
+    if (!activeYear?.id) { toast.error("No active academic year"); return; }
+    setImporting(true);
+    setImportResults(null);
+    try {
+      const text = await file.text();
+      const lines = text.split("\n").filter(l => l.trim());
+      if (lines.length < 2) { toast.error("File is empty or has no data rows"); return; }
+
+      const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, "").toLowerCase());
+      const rows = lines.slice(1);
+
+      let imported = 0, skipped = 0, errors = [];
+
+      for (const row of rows) {
+        const cols = row.split(",").map(c2 => c2.trim().replace(/^"|"$/g, ""));
+        if (cols.every(c2 => !c2)) continue;
+
+        const obj = {};
+        headers.forEach((h, i) => { obj[h] = cols[i] || ""; });
+
+        const fullName = obj["full_name"] || obj["name"] || "";
+        if (!fullName) { skipped++; continue; }
+
+        const { data: existing } = await supabase
+          .from("students")
+          .select("id, full_name")
+          .eq("academic_year_id", activeYear.id)
+          .ilike("full_name", fullName.trim())
+          .maybeSingle();
+
+        if (existing) {
+          await supabase.from("students").update({
+            gender:            obj["gender"] || "male",
+            date_of_birth:     obj["date_of_birth"] || null,
+            place_of_birth:    obj["place_of_birth"] || null,
+            area_of_residence: obj["area_of_residence"] || null,
+            father_name:       obj["father_name"] || null,
+            father_phone:      obj["father_phone"] || null,
+            father_occupation: obj["father_occupation"] || null,
+            mother_name:       obj["mother_name"] || null,
+            mother_phone:      obj["mother_phone"] || null,
+            mother_occupation: obj["mother_occupation"] || null,
+            guardian1_name:    obj["guardian1_name"] || null,
+            guardian1_phone:   obj["guardian1_phone"] || null,
+            guardian1_relationship: obj["guardian1_relationship"] || null,
+            pickup1_name:      obj["pickup1_name"] || null,
+            pickup1_phone:     obj["pickup1_phone"] || null,
+            pickup1_relationship: obj["pickup1_relationship"] || null,
+            pickup2_name:      obj["pickup2_name"] || null,
+            pickup2_phone:     obj["pickup2_phone"] || null,
+            pickup2_relationship: obj["pickup2_relationship"] || null,
+            has_health_concerns: obj["has_health_concerns"] === "true",
+            health_concern_details: obj["health_concern_details"] || null,
+            is_on_medication:  obj["is_on_medication"] === "true",
+            medication_details: obj["medication_details"] || null,
+            blood_group:       obj["blood_group"] || null,
+            allergies:         obj["allergies"] || null,
+            birth_certificate_no: obj["birth_certificate_no"] || null,
+          }).eq("id", existing.id);
+          skipped++;
+          continue;
+        }
+
+        const { data: newStudent, error: insErr } = await supabase
+          .from("students")
+          .insert([{
+            full_name:         fullName.trim(),
+            gender:            obj["gender"] || "male",
+            date_of_birth:     obj["date_of_birth"] || null,
+            place_of_birth:    obj["place_of_birth"] || null,
+            area_of_residence: obj["area_of_residence"] || null,
+            class_level:       classes.find(c2 =>
+              c2.name.toLowerCase().trim() === (obj["class_name"] || "").toLowerCase().trim() ||
+              c2.level.toLowerCase().trim() === (obj["class_name"] || "").toLowerCase().trim()
+            )?.level || obj["class_name"] || "Class 1",
+            section:           "anglophone",
+            father_name:       obj["father_name"] || null,
+            father_phone:      obj["father_phone"] || null,
+            father_occupation: obj["father_occupation"] || null,
+            mother_name:       obj["mother_name"] || null,
+            mother_phone:      obj["mother_phone"] || null,
+            mother_occupation: obj["mother_occupation"] || null,
+            guardian1_name:    obj["guardian1_name"] || null,
+            guardian1_phone:   obj["guardian1_phone"] || null,
+            guardian1_relationship: obj["guardian1_relationship"] || null,
+            pickup1_name:      obj["pickup1_name"] || null,
+            pickup1_phone:     obj["pickup1_phone"] || null,
+            pickup1_relationship: obj["pickup1_relationship"] || null,
+            pickup2_name:      obj["pickup2_name"] || null,
+            pickup2_phone:     obj["pickup2_phone"] || null,
+            pickup2_relationship: obj["pickup2_relationship"] || null,
+            has_health_concerns: obj["has_health_concerns"] === "true",
+            health_concern_details: obj["health_concern_details"] || null,
+            is_on_medication:  obj["is_on_medication"] === "true",
+            medication_details: obj["medication_details"] || null,
+            blood_group:       obj["blood_group"] || null,
+            allergies:         obj["allergies"] || null,
+            birth_certificate_no: obj["birth_certificate_no"] || null,
+            academic_year_id:  activeYear.id,
+            photo_url:         null,
+            parent_name:       obj["father_name"] || obj["mother_name"] || null,
+            parent_phone:      obj["father_phone"] || obj["mother_phone"] || null,
+          }])
+          .select().single();
+
+        if (insErr) { errors.push(fullName + ": " + insErr.message); continue; }
+
+        // Match class by name from CSV row
+        const rowClassName = (obj["class_name"] || "").toLowerCase().trim();
+        const matchedClass = classes.find(c2 =>
+          c2.name.toLowerCase().trim() === rowClassName ||
+          c2.level.toLowerCase().trim() === rowClassName
+        );
+        if (matchedClass) {
+          await supabase.from("class_students")
+            .insert([{ student_id: newStudent.id, class_id: matchedClass.id }]);
+          await createHolidayFeeIfNeeded(newStudent.id, matchedClass.id);
+        } else if (rowClassName) {
+          errors.push(fullName + ": class '" + obj["class_name"] + "' not found");
+        }
+
+        imported++;
+      }
+
+      setImportResults({ imported, skipped, errors });
+      if (imported > 0) { toast.success(imported + " students imported!"); fetchAll(); }
+      else toast.error("No new students imported");
+    } catch(e) {
+      toast.error("Import failed: " + e.message);
+    } finally {
+      setImporting(false);
+    }
+  }
+
   function openAdd() {
     setEditing(null); setForm(EMPTY_FORM);
     setPhotoFile(null); setPhotoPreview(null); setShowModal(true);
@@ -476,9 +657,15 @@ export default function Students() {
           <p className="text-sm text-gray-500 mt-0.5">{students.length} enrolled · MARELI Academy, Buea</p>
         </div>
         {!isUnassignedTeacher && (
-          <button onClick={openAdd} className="btn-primary flex items-center gap-2">
-            <Plus size={16}/> Enrol Student
-          </button>
+          <div className="flex gap-2">
+            <button onClick={() => { setShowImport(true); setImportResults(null); setImportClass(""); }}
+              className="btn-ghost flex items-center gap-2">
+              <Upload size={16}/> Import from Excel
+            </button>
+            <button onClick={openAdd} className="btn-primary flex items-center gap-2">
+              <Plus size={16}/> Enrol Student
+            </button>
+          </div>
         )}
       </div>
 
@@ -760,6 +947,23 @@ export default function Students() {
                 <p className="text-xs text-gray-400">Click camera to upload photo (max 2MB)</p>
               </div>
 
+              {/* Tab bar */}
+              <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+                {[
+                  { key: "pupil",   label: "Pupil Info" },
+                  { key: "parents", label: "Parents" },
+                  { key: "pickup",  label: "Pickup" },
+                  { key: "medical", label: "Medical" },
+                ].map(({ key, label }) => (
+                  <button key={key} type="button" onClick={() => setFormTab(key)}
+                    className={`flex-1 px-2 py-1.5 rounded-lg text-xs font-medium transition-all ${formTab === key ? "bg-white shadow text-primary" : "text-gray-500 hover:text-gray-700"}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {formTab === "pupil" && (
+              <>
               {/* Identity */}
               <div>
                 <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Identity</h3>
@@ -782,6 +986,11 @@ export default function Students() {
                       <option value="female">Female</option>
                     </select>
                   </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Place of birth</label>
+                    <input className="input" value={form.place_of_birth}
+                      onChange={e => setForm(p => ({ ...p, place_of_birth: e.target.value }))}/>
+                  </div>
                   <div className="col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Birth certificate no.</label>
                     <input className="input" value={form.birth_certificate_no}
@@ -798,13 +1007,16 @@ export default function Students() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Class level *</label>
                     <select className="input" required value={form.class_level}
                       onChange={e => setForm(p => ({ ...p, class_level: e.target.value }))}>
-                      <optgroup label="Nursery Section">
-                        {["Day Care","Pre-Nursery","Nursery 1","Nursery 2"].map(c => <option key={c} value={c}>{c}</option>)}
-                      </optgroup>
-                      <optgroup label="Primary Section">
-                        {["Class 1","Class 2","Class 3","Class 4","Class 5","Class 6"].map(c => <option key={c} value={c}>{c}</option>)}
-                      </optgroup>
+                      <option value="">— Select class —</option>
+                      {classes.length > 0
+                        ? classes.map(c => <option key={c.id} value={c.level}>{c.name} ({c.level})</option>)
+                        : ["Day Care","Pre-Nursery","Nursery 1","Nursery 2","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6"]
+                            .map(c => <option key={c} value={c}>{c}</option>)
+                      }
                     </select>
+                    {classes.length === 0 && (
+                      <p className="text-xs text-amber-600 mt-1">⚠ No classes found for the active year. Create classes in Academic Setup first.</p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Section</label>
@@ -835,6 +1047,11 @@ export default function Students() {
                       onChange={e => setForm(p => ({ ...p, quarter: e.target.value }))}/>
                   </div>
                   <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Area of residence</label>
+                    <input className="input" value={form.area_of_residence}
+                      onChange={e => setForm(p => ({ ...p, area_of_residence: e.target.value }))}/>
+                  </div>
+                  <div className="col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Region</label>
                     <select className="input" value={form.region}
                       onChange={e => setForm(p => ({ ...p, region: e.target.value }))}>
@@ -844,10 +1061,80 @@ export default function Students() {
                   </div>
                 </div>
               </div>
+              </>
+              )}
 
-              {/* Parent */}
+              {formTab === "parents" && (
+              <>
+              {/* Father */}
               <div>
-                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Parent / Guardian</h3>
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Father</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Full name</label>
+                    <input className="input" value={form.father_name}
+                      onChange={e => setForm(p => ({ ...p, father_name: e.target.value }))}/>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                    <input className="input" value={form.father_phone}
+                      onChange={e => setForm(p => ({ ...p, father_phone: e.target.value }))}/>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Occupation</label>
+                    <input className="input" value={form.father_occupation}
+                      onChange={e => setForm(p => ({ ...p, father_occupation: e.target.value }))}/>
+                  </div>
+                </div>
+              </div>
+
+              {/* Mother */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Mother</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Full name</label>
+                    <input className="input" value={form.mother_name}
+                      onChange={e => setForm(p => ({ ...p, mother_name: e.target.value }))}/>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                    <input className="input" value={form.mother_phone}
+                      onChange={e => setForm(p => ({ ...p, mother_phone: e.target.value }))}/>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Occupation</label>
+                    <input className="input" value={form.mother_occupation}
+                      onChange={e => setForm(p => ({ ...p, mother_occupation: e.target.value }))}/>
+                  </div>
+                </div>
+              </div>
+
+              {/* Guardian 1 */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Guardian (optional)</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Full name</label>
+                    <input className="input" value={form.guardian1_name}
+                      onChange={e => setForm(p => ({ ...p, guardian1_name: e.target.value }))}/>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                    <input className="input" value={form.guardian1_phone}
+                      onChange={e => setForm(p => ({ ...p, guardian1_phone: e.target.value }))}/>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Relationship</label>
+                    <input className="input" value={form.guardian1_relationship}
+                      onChange={e => setForm(p => ({ ...p, guardian1_relationship: e.target.value }))}/>
+                  </div>
+                </div>
+              </div>
+
+              {/* Primary contact (legacy - used for SMS/receipts) */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Primary Contact (for SMS &amp; receipts)</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Full name</label>
@@ -875,7 +1162,59 @@ export default function Students() {
                   </div>
                 </div>
               </div>
+              </>
+              )}
 
+              {formTab === "pickup" && (
+              <>
+              {/* Pickup 1 */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Authorized Pickup 1</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Full name</label>
+                    <input className="input" value={form.pickup1_name}
+                      onChange={e => setForm(p => ({ ...p, pickup1_name: e.target.value }))}/>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                    <input className="input" value={form.pickup1_phone}
+                      onChange={e => setForm(p => ({ ...p, pickup1_phone: e.target.value }))}/>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Relationship</label>
+                    <input className="input" value={form.pickup1_relationship}
+                      onChange={e => setForm(p => ({ ...p, pickup1_relationship: e.target.value }))}/>
+                  </div>
+                </div>
+              </div>
+
+              {/* Pickup 2 */}
+              <div>
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Authorized Pickup 2 (optional)</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Full name</label>
+                    <input className="input" value={form.pickup2_name}
+                      onChange={e => setForm(p => ({ ...p, pickup2_name: e.target.value }))}/>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                    <input className="input" value={form.pickup2_phone}
+                      onChange={e => setForm(p => ({ ...p, pickup2_phone: e.target.value }))}/>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Relationship</label>
+                    <input className="input" value={form.pickup2_relationship}
+                      onChange={e => setForm(p => ({ ...p, pickup2_relationship: e.target.value }))}/>
+                  </div>
+                </div>
+              </div>
+              </>
+              )}
+
+              {formTab === "medical" && (
+              <>
               {/* Health */}
               <div>
                 <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Health (optional)</h3>
@@ -893,8 +1232,40 @@ export default function Students() {
                     <input className="input" value={form.allergies}
                       onChange={e => setForm(p => ({ ...p, allergies: e.target.value }))}/>
                   </div>
+                  <div className="col-span-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={form.has_health_concerns}
+                        onChange={e => setForm(p => ({ ...p, has_health_concerns: e.target.checked }))}
+                        className="w-4 h-4 accent-green-700 rounded"/>
+                      <span className="text-sm text-gray-700">Has health concerns</span>
+                    </label>
+                  </div>
+                  {form.has_health_concerns && (
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Details</label>
+                      <input className="input" value={form.health_concern_details}
+                        onChange={e => setForm(p => ({ ...p, health_concern_details: e.target.value }))}/>
+                    </div>
+                  )}
+                  <div className="col-span-2">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={form.is_on_medication}
+                        onChange={e => setForm(p => ({ ...p, is_on_medication: e.target.checked }))}
+                        className="w-4 h-4 accent-green-700 rounded"/>
+                      <span className="text-sm text-gray-700">Currently on medication</span>
+                    </label>
+                  </div>
+                  {form.is_on_medication && (
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Details</label>
+                      <input className="input" value={form.medication_details}
+                        onChange={e => setForm(p => ({ ...p, medication_details: e.target.value }))}/>
+                    </div>
+                  )}
                 </div>
               </div>
+              </>
+              )}
 
               <div className="flex justify-end gap-3 pt-2 border-t border-gray-100">
                 <button type="button" onClick={() => setShowModal(false)} className="btn-ghost">Cancel</button>
@@ -904,6 +1275,75 @@ export default function Students() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showImport && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+          onClick={() => !importing && setShowImport(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
+              <h2 className="font-display font-bold text-lg text-gray-900 flex items-center gap-2">
+                <FileSpreadsheet size={20}/> Import Students from Excel
+              </h2>
+              <button onClick={() => !importing && setShowImport(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <button type="button" onClick={downloadTemplate}
+                className="btn-ghost w-full flex items-center justify-center gap-2">
+                <Download size={16}/> Download CSV Template
+              </button>
+              <p className="text-xs text-gray-400 text-center">Fill the template, save as CSV, then upload below.</p>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Available classes in active year</label>
+                <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs text-gray-600 space-y-1">
+                  {classes.length === 0
+                    ? <span className="text-amber-600">⚠ No classes found. Create classes in Academic Setup first.</span>
+                    : classes.map(c => (
+                        <div key={c.id} className="font-medium">• {c.name} ({c.level})</div>
+                      ))
+                  }
+                  <p className="text-gray-400 pt-1">Use the exact class name in the <strong>class_name</strong> column of your CSV.</p>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">CSV file *</label>
+                <input ref={importRef} type="file" accept=".csv" className="input"
+                  onChange={e => { if (e.target.files[0]) importFromExcel(e.target.files[0]); }}
+                  disabled={importing || !importClass}/>
+                {!importClass && <p className="text-xs text-amber-600 mt-1">Select a class first</p>}
+              </div>
+
+              {importing && (
+                <div className="flex items-center justify-center gap-2 py-4 text-gray-500 text-sm">
+                  <Loader2 className="animate-spin" size={18}/> Importing students...
+                </div>
+              )}
+
+              {importResults && !importing && (
+                <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
+                  <p className="text-green-700 font-medium">{importResults.imported} new students imported</p>
+                  {importResults.skipped > 0 && <p className="text-gray-500">{importResults.skipped} rows updated or skipped (duplicates/blank)</p>}
+                  {importResults.errors.length > 0 && (
+                    <div className="text-red-600">
+                      <p className="font-medium">{importResults.errors.length} error(s):</p>
+                      <ul className="list-disc list-inside">
+                        {importResults.errors.slice(0,10).map((e2,i) => <li key={i}>{e2}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end pt-2 border-t border-gray-100">
+                <button type="button" onClick={() => setShowImport(false)} className="btn-ghost" disabled={importing}>Close</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
