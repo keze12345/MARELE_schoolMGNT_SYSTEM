@@ -305,25 +305,62 @@ export default function Students() {
         // Create parent account automatically
         try {
           const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
-          const res = await fetch(apiUrl + "/create-parent", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              parent_name: form.parent_name,
-              parent_phone: form.parent_phone,
-              student_id: data.id
-            })
-          });
-          const result = await res.json();
-          if (result.success) {
-            setCredentials({
-              name:     form.parent_name,
-              email:    result.email,
-              password: result.password,
-              role:     "Parent Portal",
-            });
+          const parentName = form.parent_name || form.father_name || form.mother_name || "";
+          const parentPhone = form.parent_phone || form.father_phone || form.mother_phone || "";
+
+          if (!parentName.trim()) {
+            toast.success("Student enrolled! (No parent name given, skipped parent account)");
+          } else {
+            const slug = parentName.trim().toLowerCase()
+              .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+              .replace(/[^a-z\s]/g, "")
+              .trim().split(/\s+/).join(".");
+            const baseEmail = (slug || "parent") + "@mareliacademy.school";
+            const password = Math.random().toString(36).slice(-5) + Math.floor(1000 + Math.random()*9000);
+
+            let email = baseEmail;
+            let attempt = 0;
+            let created = null;
+            let lastError = null;
+
+            while (attempt < 5 && !created) {
+              const res = await fetch(apiUrl + "/users", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  email, password,
+                  full_name: parentName,
+                  role: "parent",
+                  phone: parentPhone || null,
+                })
+              });
+              const result = await res.json();
+              if (result.success) {
+                created = result;
+              } else if ((result.error || "").toLowerCase().includes("already") ||
+                         (result.error || "").toLowerCase().includes("duplicate")) {
+                attempt++;
+                const [namePart] = baseEmail.split("@");
+                email = namePart + attempt + "@mareliacademy.school";
+              } else {
+                lastError = result.error;
+                break;
+              }
+            }
+
+            if (created) {
+              await supabase.from("students").update({ parent_user_id: created.user.id }).eq("id", data.id);
+              setCredentials({
+                name:     parentName,
+                email:    email,
+                password: password,
+                role:     "Parent Portal",
+              });
+              toast.success("Student enrolled! Parent account created.");
+            } else {
+              toast.success("Student enrolled! (Parent account failed: " + (lastError || "unknown error") + ")");
+            }
           }
-          toast.success("Student enrolled! Parent account created.");
         } catch(e) {
           toast.success("Student enrolled!");
           console.warn("Parent account creation failed", e);

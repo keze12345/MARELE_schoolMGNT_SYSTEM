@@ -22,7 +22,8 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.some(o => origin.startsWith(o))) {
+    const isLocalhost = origin && /^http:\/\/localhost:\d+$/.test(origin);
+    if (!origin || isLocalhost || allowedOrigins.some(o => origin.startsWith(o))) {
       callback(null, true);
     } else {
       console.log("CORS blocked:", origin);

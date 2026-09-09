@@ -137,9 +137,16 @@ export default function Staff() {
     setShowModal(true);
   }
 
+  function slugifyName(name) {
+    return name.trim().toLowerCase()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z\s]/g, "")
+      .trim().split(/\s+/).join("");
+  }
+
   async function handleSave(e) {
     e.preventDefault();
-    if (!editingId && form.password.length < 8) { toast.error("Password must be at least 8 characters"); return; }
+    if (!form.full_name.trim()) { toast.error("Full name is required"); return; }
     setSaving(true);
     try {
       let res, data;
@@ -152,19 +159,45 @@ export default function Staff() {
         if (data.error) throw new Error(data.error);
         toast.success("Staff member updated!");
       } else {
-        res  = await fetch(`${API}/users`, {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(form),
-        });
-        data = await res.json();
-        if (data.error) throw new Error(data.error);
-        // Show credentials popup
+        const baseSlug = slugifyName(form.full_name) || "staff";
+        const password = Math.random().toString(36).slice(-5) + Math.floor(1000 + Math.random()*9000);
+
+        let email = baseSlug + ".staff@mareliacademy.school";
+        let attempt = 0;
+        let created = null;
+        let lastError = null;
+
+        while (attempt < 5 && !created) {
+          res = await fetch(`${API}/users`, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email, password,
+              full_name: form.full_name, role: form.role,
+              phone: form.phone, gender: form.gender,
+            }),
+          });
+          data = await res.json();
+          if (data.success) {
+            created = data;
+          } else if ((data.error || "").toLowerCase().includes("already") ||
+                     (data.error || "").toLowerCase().includes("duplicate")) {
+            attempt++;
+            email = baseSlug + attempt + ".staff@mareliacademy.school";
+          } else {
+            lastError = data.error;
+            break;
+          }
+        }
+
+        if (!created) throw new Error(lastError || "Failed to create staff account");
+
         setCredentials({
           name:     form.full_name,
-          email:    form.email,
-          password: form.password,
+          email:    email,
+          password: password,
           role:     ROLES.find(r => r.value === form.role)?.label || form.role,
         });
+        toast.success("Staff member created!");
       }
       setShowModal(false);
       setForm(EMPTY_FORM);
@@ -330,25 +363,9 @@ export default function Staff() {
                   value={form.phone} onChange={e => setForm(p=>({...p,phone:e.target.value}))}/>
               </div>
               {!editingId && (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Email address *</label>
-                    <input className="input" type="email" required placeholder="teacher@mareli.cm"
-                      value={form.email} onChange={e => setForm(p=>({...p,email:e.target.value}))}/>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
-                    <div className="relative">
-                      <input className="input pr-10" type={showPwd?"text":"password"} required
-                        placeholder="Min. 8 characters"
-                        value={form.password} onChange={e => setForm(p=>({...p,password:e.target.value}))}/>
-                      <button type="button" onClick={() => setShowPwd(s=>!s)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
-                        {showPwd ? <EyeOff size={15}/> : <Eye size={15}/>}
-                      </button>
-                    </div>
-                  </div>
-                </>
+                <div className="p-3 rounded-xl bg-blue-50 border border-blue-100 text-xs text-blue-700">
+                  ℹ Login email and password will be generated automatically and shown after saving.
+                </div>
               )}
               {editingId && (
                 <div className="p-3 rounded-xl bg-blue-50 border border-blue-100 text-xs text-blue-700">
