@@ -334,10 +334,14 @@ export default function Students() {
     setSaving(false);
   }
 
+  function normalizeGender(raw) {
+    const g = (raw || "").toLowerCase().trim();
+    if (g.startsWith("f")) return "female";
+    return "male";
+  }
+
   function downloadTemplate() {
-    // Build class list for the instructions row
-    const classList = classes.map(c => c.name).join(" | ") || "Class 1A | Class 2A | Nursery 1A";
-    const headers = ["class_name","full_name","gender","date_of_birth","place_of_birth","area_of_residence",
+    const headers = ["full_name","gender","date_of_birth","place_of_birth","area_of_residence",
       "father_name","father_phone","father_occupation",
       "mother_name","mother_phone","mother_occupation",
       "guardian1_name","guardian1_phone","guardian1_relationship",
@@ -346,8 +350,7 @@ export default function Students() {
       "has_health_concerns","health_concern_details",
       "is_on_medication","medication_details",
       "blood_group","allergies","birth_certificate_no"];
-    const instructions = [`CLASS NAMES: ${classList}`,"","","","","","","","","","","","","","","","","","","","","","","","","",""];
-    const example = ["Class 1A","John Doe","male","2018-01-15","Buea","Molyko",
+    const example = ["John Doe","male","2018-01-15","Buea","Molyko",
       "Mr Doe","677000001","Engineer",
       "Mrs Doe","677000002","Teacher",
       "","","","","","","","","",
@@ -361,6 +364,7 @@ export default function Students() {
   }
 
   async function importFromExcel(file) {
+    if (!importClass) { toast.error("Select a class first"); return; }
     if (!activeYear?.id) { toast.error("No active academic year"); return; }
     setImporting(true);
     setImportResults(null);
@@ -370,11 +374,21 @@ export default function Students() {
       if (lines.length < 2) { toast.error("File is empty or has no data rows"); return; }
 
       const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, "").toLowerCase());
-      const rows = lines.slice(1);
+      const dataRows = lines.slice(1);
+      const targetClass = classes.find(c2 => c2.id === importClass);
 
-      let imported = 0, skipped = 0, errors = [];
+      // Fetch all existing students for this year ONCE (instead of per row)
+      const { data: existingStudents } = await supabase
+        .from("students").select("id, full_name").eq("academic_year_id", activeYear.id);
+      const existingByName = new Map(
+        (existingStudents || []).map(s => [s.full_name.toLowerCase().trim(), s])
+      );
 
-      for (const row of rows) {
+      const toInsert = [];
+      const toUpdate = [];
+      let errors = [];
+
+      for (const row of dataRows) {
         const cols = row.split(",").map(c2 => c2.trim().replace(/^"|"$/g, ""));
         if (cols.every(c2 => !c2)) continue;
 
@@ -382,112 +396,115 @@ export default function Students() {
         headers.forEach((h, i) => { obj[h] = cols[i] || ""; });
 
         const fullName = obj["full_name"] || obj["name"] || "";
-        if (!fullName) { skipped++; continue; }
+        if (!fullName) continue;
 
-        const { data: existing } = await supabase
-          .from("students")
-          .select("id, full_name")
-          .eq("academic_year_id", activeYear.id)
-          .ilike("full_name", fullName.trim())
-          .maybeSingle();
+        const payload = {
+          full_name:         fullName.trim(),
+          gender:            normalizeGender(obj["gender"]),
+          date_of_birth:     obj["date_of_birth"] || null,
+          place_of_birth:    obj["place_of_birth"] || null,
+          area_of_residence: obj["area_of_residence"] || null,
+          father_name:       obj["father_name"] || null,
+          father_phone:      obj["father_phone"] || null,
+          father_occupation: obj["father_occupation"] || null,
+          mother_name:       obj["mother_name"] || null,
+          mother_phone:      obj["mother_phone"] || null,
+          mother_occupation: obj["mother_occupation"] || null,
+          guardian1_name:    obj["guardian1_name"] || null,
+          guardian1_phone:   obj["guardian1_phone"] || null,
+          guardian1_relationship: obj["guardian1_relationship"] || null,
+          pickup1_name:      obj["pickup1_name"] || null,
+          pickup1_phone:     obj["pickup1_phone"] || null,
+          pickup1_relationship: obj["pickup1_relationship"] || null,
+          pickup2_name:      obj["pickup2_name"] || null,
+          pickup2_phone:     obj["pickup2_phone"] || null,
+          pickup2_relationship: obj["pickup2_relationship"] || null,
+          has_health_concerns: obj["has_health_concerns"] === "true",
+          health_concern_details: obj["health_concern_details"] || null,
+          is_on_medication:  obj["is_on_medication"] === "true",
+          medication_details: obj["medication_details"] || null,
+          blood_group:       obj["blood_group"] || null,
+          allergies:         obj["allergies"] || null,
+          birth_certificate_no: obj["birth_certificate_no"] || null,
+        };
 
+        const existing = existingByName.get(fullName.toLowerCase().trim());
         if (existing) {
-          await supabase.from("students").update({
-            gender:            obj["gender"] || "male",
-            date_of_birth:     obj["date_of_birth"] || null,
-            place_of_birth:    obj["place_of_birth"] || null,
-            area_of_residence: obj["area_of_residence"] || null,
-            father_name:       obj["father_name"] || null,
-            father_phone:      obj["father_phone"] || null,
-            father_occupation: obj["father_occupation"] || null,
-            mother_name:       obj["mother_name"] || null,
-            mother_phone:      obj["mother_phone"] || null,
-            mother_occupation: obj["mother_occupation"] || null,
-            guardian1_name:    obj["guardian1_name"] || null,
-            guardian1_phone:   obj["guardian1_phone"] || null,
-            guardian1_relationship: obj["guardian1_relationship"] || null,
-            pickup1_name:      obj["pickup1_name"] || null,
-            pickup1_phone:     obj["pickup1_phone"] || null,
-            pickup1_relationship: obj["pickup1_relationship"] || null,
-            pickup2_name:      obj["pickup2_name"] || null,
-            pickup2_phone:     obj["pickup2_phone"] || null,
-            pickup2_relationship: obj["pickup2_relationship"] || null,
-            has_health_concerns: obj["has_health_concerns"] === "true",
-            health_concern_details: obj["health_concern_details"] || null,
-            is_on_medication:  obj["is_on_medication"] === "true",
-            medication_details: obj["medication_details"] || null,
-            blood_group:       obj["blood_group"] || null,
-            allergies:         obj["allergies"] || null,
-            birth_certificate_no: obj["birth_certificate_no"] || null,
-          }).eq("id", existing.id);
-          skipped++;
-          continue;
+          toUpdate.push({ id: existing.id, payload });
+        } else {
+          toInsert.push({
+            ...payload,
+            class_level:      targetClass?.level || "Class 1",
+            section:          "anglophone",
+            academic_year_id: activeYear.id,
+            photo_url:        null,
+            parent_name:      payload.father_name || payload.mother_name || null,
+            parent_phone:     payload.father_phone || payload.mother_phone || null,
+          });
         }
+      }
 
-        const { data: newStudent, error: insErr } = await supabase
-          .from("students")
-          .insert([{
-            full_name:         fullName.trim(),
-            gender:            obj["gender"] || "male",
-            date_of_birth:     obj["date_of_birth"] || null,
-            place_of_birth:    obj["place_of_birth"] || null,
-            area_of_residence: obj["area_of_residence"] || null,
-            class_level:       classes.find(c2 =>
-              c2.name.toLowerCase().trim() === (obj["class_name"] || "").toLowerCase().trim() ||
-              c2.level.toLowerCase().trim() === (obj["class_name"] || "").toLowerCase().trim()
-            )?.level || obj["class_name"] || "Class 1",
-            section:           "anglophone",
-            father_name:       obj["father_name"] || null,
-            father_phone:      obj["father_phone"] || null,
-            father_occupation: obj["father_occupation"] || null,
-            mother_name:       obj["mother_name"] || null,
-            mother_phone:      obj["mother_phone"] || null,
-            mother_occupation: obj["mother_occupation"] || null,
-            guardian1_name:    obj["guardian1_name"] || null,
-            guardian1_phone:   obj["guardian1_phone"] || null,
-            guardian1_relationship: obj["guardian1_relationship"] || null,
-            pickup1_name:      obj["pickup1_name"] || null,
-            pickup1_phone:     obj["pickup1_phone"] || null,
-            pickup1_relationship: obj["pickup1_relationship"] || null,
-            pickup2_name:      obj["pickup2_name"] || null,
-            pickup2_phone:     obj["pickup2_phone"] || null,
-            pickup2_relationship: obj["pickup2_relationship"] || null,
-            has_health_concerns: obj["has_health_concerns"] === "true",
-            health_concern_details: obj["health_concern_details"] || null,
-            is_on_medication:  obj["is_on_medication"] === "true",
-            medication_details: obj["medication_details"] || null,
-            blood_group:       obj["blood_group"] || null,
-            allergies:         obj["allergies"] || null,
-            birth_certificate_no: obj["birth_certificate_no"] || null,
-            academic_year_id:  activeYear.id,
-            photo_url:         null,
-            parent_name:       obj["father_name"] || obj["mother_name"] || null,
-            parent_phone:      obj["father_phone"] || obj["mother_phone"] || null,
-          }])
-          .select().single();
+      let imported = 0, skipped = 0;
 
-        if (insErr) { errors.push(fullName + ": " + insErr.message); continue; }
+      // Batch-update duplicates in parallel (still N requests, but concurrent not sequential)
+      if (toUpdate.length > 0) {
+        await Promise.all(toUpdate.map(u =>
+          supabase.from("students").update(u.payload).eq("id", u.id)
+        ));
+        skipped = toUpdate.length;
+      }
 
-        // Match class by name from CSV row
-        const rowClassName = (obj["class_name"] || "").toLowerCase().trim();
-        const matchedClass = classes.find(c2 =>
-          c2.name.toLowerCase().trim() === rowClassName ||
-          c2.level.toLowerCase().trim() === rowClassName
-        );
-        if (matchedClass) {
-          await supabase.from("class_students")
-            .insert([{ student_id: newStudent.id, class_id: matchedClass.id }]);
-          await createHolidayFeeIfNeeded(newStudent.id, matchedClass.id);
-        } else if (rowClassName) {
-          errors.push(fullName + ": class '" + obj["class_name"] + "' not found");
+      // Batch-insert all new students in ONE request
+      if (toInsert.length > 0) {
+        const { data: newStudents, error: insErr } = await supabase
+          .from("students").insert(toInsert).select();
+
+        if (insErr) {
+          errors.push("Batch insert failed: " + insErr.message);
+        } else {
+          imported = newStudents.length;
+
+          // Batch-link all new students to the class in ONE request
+          const links = newStudents.map(s => ({ student_id: s.id, class_id: importClass }));
+          await supabase.from("class_students").insert(links);
+
+          // Batch fee creation - compute once for the class, then one insert for all
+          const { data: cls } = await supabase
+            .from("classes").select("academic_year_id, level").eq("id", importClass).single();
+          if (cls?.academic_year_id) {
+            const { data: year } = await supabase
+              .from("academic_years").select("name").eq("id", cls.academic_year_id).single();
+            if (year) {
+              const { data: allStructs } = await supabase
+                .from("fee_structures").select("*").eq("academic_year", year.name);
+              if (allStructs && allStructs.length > 0) {
+                const studentLevel = cls.level || "";
+                let matched = allStructs.find(s =>
+                  studentLevel.toLowerCase().includes(s.level_group.toLowerCase()) ||
+                  s.level_group.toLowerCase().includes(studentLevel.toLowerCase())
+                ) || allStructs[0];
+                if (matched) {
+                  const levelStructs = allStructs.filter(s => s.level_group === matched.level_group);
+                  const totalOwed = levelStructs.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+                  const feeRows = newStudents.map(s => ({
+                    student_id: s.id,
+                    academic_year: year.name,
+                    level_group: matched.level_group,
+                    total_owed: totalOwed,
+                    total_paid: 0,
+                  }));
+                  await supabase.from("student_fees").insert(feeRows);
+                }
+              }
+            }
+          }
         }
-
-        imported++;
       }
 
       setImportResults({ imported, skipped, errors });
       if (imported > 0) { toast.success(imported + " students imported!"); fetchAll(); }
-      else toast.error("No new students imported");
+      else if (skipped > 0) { toast.success(skipped + " students updated"); fetchAll(); }
+      else toast.error("No students imported");
     } catch(e) {
       toast.error("Import failed: " + e.message);
     } finally {
@@ -1299,16 +1316,14 @@ export default function Students() {
               <p className="text-xs text-gray-400 text-center">Fill the template, save as CSV, then upload below.</p>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Available classes in active year</label>
-                <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs text-gray-600 space-y-1">
-                  {classes.length === 0
-                    ? <span className="text-amber-600">⚠ No classes found. Create classes in Academic Setup first.</span>
-                    : classes.map(c => (
-                        <div key={c.id} className="font-medium">• {c.name} ({c.level})</div>
-                      ))
-                  }
-                  <p className="text-gray-400 pt-1">Use the exact class name in the <strong>class_name</strong> column of your CSV.</p>
-                </div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Import into class *</label>
+                <select className="input" value={importClass} onChange={e => setImportClass(e.target.value)}>
+                  <option value="">Select class...</option>
+                  {classes.map(c => (
+                    <option key={c.id} value={c.id}>{c.name} ({c.level})</option>
+                  ))}
+                </select>
+                {classes.length === 0 && <p className="text-xs text-amber-600 mt-1">No classes found — create one in Academic Setup first</p>}
               </div>
 
               <div>
