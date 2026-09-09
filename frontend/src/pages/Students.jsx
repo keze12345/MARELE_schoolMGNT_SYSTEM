@@ -491,6 +491,8 @@ export default function Students() {
         skipped = toUpdate.length;
       }
 
+      let credentials = [];
+
       // Batch-insert all new students in ONE request
       if (toInsert.length > 0) {
         const { data: newStudents, error: insErr } = await supabase
@@ -535,10 +537,67 @@ export default function Students() {
               }
             }
           }
+
+          // Create a parent login account for each new student that has a parent name
+          const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+          for (const s of newStudents) {
+            const parentName = s.parent_name;
+            const parentPhone = s.parent_phone;
+            if (!parentName || !parentName.trim()) continue;
+
+            const baseSlug = parentName.trim().toLowerCase()
+              .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+              .replace(/[^a-z\s]/g, "")
+              .trim().split(/\s+/).join(".") || "parent";
+            const password = Math.random().toString(36).slice(-5) + Math.floor(1000 + Math.random()*9000);
+
+            let email = baseSlug + "@mareliacademy.school";
+            let attempt = 0;
+            let created = null;
+
+            while (attempt < 5 && !created) {
+              try {
+                const res = await fetch(apiUrl + "/users", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    email, password,
+                    full_name: parentName,
+                    role: "parent",
+                    phone: parentPhone || null,
+                  })
+                });
+                const result = await res.json();
+                if (result.success) {
+                  created = result;
+                } else if ((result.error || "").toLowerCase().includes("already") ||
+                           (result.error || "").toLowerCase().includes("duplicate")) {
+                  attempt++;
+                  email = baseSlug + attempt + "@mareliacademy.school";
+                } else {
+                  errors.push(s.full_name + " (parent account): " + result.error);
+                  break;
+                }
+              } catch (e2) {
+                errors.push(s.full_name + " (parent account): " + e2.message);
+                break;
+              }
+            }
+
+            if (created) {
+              await supabase.from("students").update({ parent_user_id: created.user.id }).eq("id", s.id);
+              credentials.push({
+                student: s.full_name,
+                parent:  parentName,
+                email:   email,
+                password: password,
+              });
+            }
+          }
         }
       }
 
-      setImportResults({ imported, skipped, errors });
+      setImportResults({ imported, skipped, errors, credentials });
       if (imported > 0) { toast.success(imported + " students imported!"); fetchAll(); }
       else if (skipped > 0) { toast.success(skipped + " students updated"); fetchAll(); }
       else toast.error("No students imported");
@@ -552,6 +611,24 @@ export default function Students() {
   function openAdd() {
     setEditing(null); setForm(EMPTY_FORM);
     setPhotoFile(null); setPhotoPreview(null); setShowModal(true);
+  }
+
+  async function resetParentPassword(s) {
+    if (!s.parent_user_id) { toast.error("No parent account linked to this student"); return; }
+    try {
+      const apiUrl = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+      const res = await fetch(`${apiUrl}/users/${s.parent_user_id}/reset-password`, { method: "POST" });
+      const result = await res.json();
+      if (!result.success) throw new Error(result.error || "Reset failed");
+      setCredentials({
+        name:     result.full_name,
+        email:    result.email,
+        password: result.password,
+        role:     "Parent Portal",
+      });
+    } catch (e) {
+      toast.error(e.message);
+    }
   }
 
   async function handleDelete(s) {
@@ -677,6 +754,13 @@ export default function Students() {
               title="Edit student">
               <Pencil size={15}/>
             </button>
+            {s.parent_user_id && profile?.role !== "teacher" && (
+              <button onClick={() => resetParentPassword(s)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors"
+                title="Reset parent password">
+                <KeyRound size={15}/>
+              </button>
+            )}
             {!isUnassignedTeacher && profile?.role !== "teacher" && (
               <button onClick={() => handleDelete(s)}
                 className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
@@ -874,6 +958,12 @@ export default function Students() {
                                 className="p-1.5 rounded-lg text-gray-400 hover:text-primary hover:bg-green-50 transition-colors">
                                 <Pencil size={14}/>
                               </button>
+                              {s.parent_user_id && profile?.role !== "teacher" && (
+                                <button onClick={() => resetParentPassword(s)}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:text-amber-600 hover:bg-amber-50 transition-colors">
+                                  <KeyRound size={14}/>
+                                </button>
+                              )}
                               {profile?.role !== "teacher" && (
                                 <button onClick={() => handleDelete(s)}
                                   className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors">
@@ -1381,6 +1471,26 @@ export default function Students() {
                 <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
                   <p className="text-green-700 font-medium">{importResults.imported} new students imported</p>
                   {importResults.skipped > 0 && <p className="text-gray-500">{importResults.skipped} rows updated or skipped (duplicates/blank)</p>}
+                  {importResults.credentials?.length > 0 && (
+                    <div className="pt-1">
+                      <p className="text-gray-700">{importResults.credentials.length} parent login(s) created</p>
+                      <button type="button"
+                        onClick={() => {
+                          const rows = [["student_name","parent_name","email","password"]];
+                          importResults.credentials.forEach(cr => rows.push([cr.student, cr.parent, cr.email, cr.password]));
+                          const csv = rows.map(r => r.map(v => `"${(v||"").replace(/"/g,'""')}"`).join(",")).join("\n");
+                          const blob = new Blob([csv], { type: "text/csv" });
+                          const url  = URL.createObjectURL(blob);
+                          const a    = document.createElement("a");
+                          a.href = url; a.download = "parent_logins_" + Date.now() + ".csv"; a.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                        className="btn-primary text-xs mt-1 flex items-center gap-1.5">
+                        <Download size={13}/> Download Login List (CSV)
+                      </button>
+                      <p className="text-xs text-amber-600 mt-1">⚠ This list won't be shown again — download and store it securely before closing.</p>
+                    </div>
+                  )}
                   {importResults.errors.length > 0 && (
                     <div className="text-red-600">
                       <p className="font-medium">{importResults.errors.length} error(s):</p>

@@ -207,6 +207,22 @@ export default function Staff() {
     setSaving(false);
   }
 
+  async function resetStaffPassword(s) {
+    try {
+      const res = await fetch(`${API}/users/${s.id}/reset-password`, { method: "POST" });
+      const result = await res.json();
+      if (!result.success) throw new Error(result.error || "Reset failed");
+      setCredentials({
+        name:     result.full_name,
+        email:    result.email,
+        password: result.password,
+        role:     ROLES.find(r => r.value === s.role)?.label || s.role,
+      });
+    } catch (e) {
+      toast.error(e.message);
+    }
+  }
+
   async function handleDelete(id, name) {
     if (!window.confirm(`Delete ${name}? This cannot be undone.`)) return;
     setDeleting(id);
@@ -303,6 +319,11 @@ export default function Staff() {
                   <button onClick={() => openEditModal(s)}
                     className="p-1.5 text-gray-300 hover:text-primary transition-colors rounded-lg hover:bg-green-50">
                     <Pencil size={14}/>
+                  </button>
+                  <button onClick={() => resetStaffPassword(s)}
+                    className="p-1.5 text-gray-300 hover:text-amber-600 transition-colors rounded-lg hover:bg-amber-50"
+                    title="Reset password">
+                    <KeyRound size={14}/>
                   </button>
                   <button onClick={() => handleDelete(s.id, s.full_name)} disabled={deleting===s.id}
                     className="p-1.5 text-gray-300 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50">

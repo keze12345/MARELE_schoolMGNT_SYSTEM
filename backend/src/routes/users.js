@@ -83,13 +83,22 @@ router.post("/:id/reset-password", async (req, res) => {
   const { id } = req.params;
   const newPassword = Math.random().toString(36).slice(-5) + Math.floor(1000 + Math.random()*9000);
 
-  const { data: profile } = await supabase.from("profiles").select("full_name").eq("id", id).single();
+  const { data: profile } = await supabase.from("profiles").select("full_name, role").eq("id", id).single();
   if (!profile) return res.status(404).json({ error: "User not found" });
+
+  const { data: authUser, error: getErr } = await supabase.auth.admin.getUserById(id);
+  if (getErr) return res.status(400).json({ error: getErr.message });
 
   const { error } = await supabase.auth.admin.updateUserById(id, { password: newPassword });
   if (error) return res.status(400).json({ error: error.message });
 
-  res.json({ success: true, password: newPassword, full_name: profile.full_name });
+  res.json({
+    success: true,
+    password: newPassword,
+    email: authUser.user.email,
+    full_name: profile.full_name,
+    role: profile.role,
+  });
 });
 
 module.exports = router;
