@@ -42,10 +42,10 @@ function InfoTable({ rows }) {
       <tbody>
         {visible.map((r, i) => (
           <tr key={i}>
-            <td style={{ width: "16px", verticalAlign: "middle", textAlign: "right", paddingRight: "6px", paddingBottom: i < visible.length - 1 ? "5px" : 0 }}>
-              <r.Icon size={10} color={GOLD} style={{ display: "inline-block", verticalAlign: "middle" }} />
+            <td style={{ width: "16px", height: "12px", verticalAlign: "middle", textAlign: "right", paddingRight: "6px", paddingBottom: i < visible.length - 1 ? "5px" : 0 }}>
+              <r.Icon size={10} color={GOLD} style={{ display: "block", margin: "0 0 0 auto" }} />
             </td>
-            <td style={{ verticalAlign: "middle", textAlign: "left", paddingBottom: i < visible.length - 1 ? "5px" : 0, fontSize: "8px", color: "#555", lineHeight: "10px", wordBreak: "break-all" }}>
+            <td style={{ height: "12px", verticalAlign: "middle", textAlign: "left", paddingBottom: i < visible.length - 1 ? "5px" : 0, fontSize: "8px", color: "#555", lineHeight: "10px", wordBreak: "break-all" }}>
               {r.text}
             </td>
           </tr>
@@ -95,10 +95,12 @@ function Card({ person, cardRef, classNames, printMode }) {
       </div>
 
       {/* Role ribbon */}
-      <div style={{ background: color, padding: "5px 0", position: "relative", zIndex: 1 }}>
-        <div style={{ textAlign: "center", color: "#fff", fontSize: "8.5px", fontWeight: "700", letterSpacing: "2px", textTransform: "uppercase" }}>
-          {ROLE_LABELS[person.role] || person.role}
-        </div>
+      <div style={{ background: color, position: "relative", zIndex: 1 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}><tbody><tr>
+          <td style={{ height: "24px", textAlign: "center", verticalAlign: "middle", color: "#fff", fontSize: "8.5px", fontWeight: "700", letterSpacing: "2px", textTransform: "uppercase" }}>
+            {ROLE_LABELS[person.role] || person.role}
+          </td>
+        </tr></tbody></table>
       </div>
 
       <div style={{ height: "2px", background: GOLD, opacity: 0.5, zIndex: 1 }} />
@@ -113,11 +115,15 @@ function Card({ person, cardRef, classNames, printMode }) {
         ) : (
           <div style={{
             width: "80px", height: "80px", borderRadius: "22px", margin: "0 auto",
-            background: color, color: "#fff",
-            fontSize: "24px", fontWeight: "700", fontFamily: SANS,
+            background: color, boxSizing: "border-box",
             border: `3px solid ${GOLD}`, boxShadow: "0 3px 8px rgba(0,0,0,0.18)",
-            lineHeight: "74px", textAlign: "center",
-          }}>{initials}</div>
+            display: "table",
+          }}>
+            <div style={{
+              display: "table-cell", verticalAlign: "middle", textAlign: "center",
+              color: "#fff", fontSize: "24px", fontWeight: "700", fontFamily: SANS,
+            }}>{initials}</div>
+          </div>
         )}
 
         <div style={{ marginTop: "11px", fontSize: "14.5px", fontWeight: "700", color: "#1a1a1a", lineHeight: "17px", fontFamily: SERIF }}>
