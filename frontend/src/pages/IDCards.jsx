@@ -42,10 +42,10 @@ function InfoTable({ rows }) {
       <tbody>
         {visible.map((r, i) => (
           <tr key={i}>
-            <td style={{ width: "16px", height: "12px", verticalAlign: "middle", textAlign: "right", paddingRight: "6px", paddingBottom: i < visible.length - 1 ? "5px" : 0 }}>
-              <r.Icon size={10} color={GOLD} style={{ display: "block", margin: "0 0 0 auto" }} />
+            <td style={{ width: "14px", height: "9px", verticalAlign: "middle", textAlign: "right", paddingRight: "5px", paddingBottom: i < visible.length - 1 ? "3px" : 0 }}>
+              <r.Icon size={9} color={GOLD} style={{ display: "block", margin: "0 0 0 auto" }} />
             </td>
-            <td style={{ height: "12px", verticalAlign: "middle", textAlign: "left", paddingBottom: i < visible.length - 1 ? "5px" : 0, fontSize: "8px", color: "#555", lineHeight: "10px", wordBreak: "break-all" }}>
+            <td style={{ height: "9px", verticalAlign: "middle", textAlign: "left", paddingBottom: i < visible.length - 1 ? "3px" : 0, fontSize: "7.5px", color: "#555", lineHeight: "9px", wordBreak: "break-all" }}>
               {r.text}
             </td>
           </tr>
@@ -84,12 +84,12 @@ function Card({ person, cardRef, classNames, printMode }) {
         }} />
 
       {/* Header — logo front and center, unobstructed */}
-      <div style={{ padding: "18px 14px 10px", textAlign: "center", position: "relative", zIndex: 1 }}>
-        <img src="/logo_ma.png" alt="logo" style={{ width: "54px", height: "54px", objectFit: "contain", display: "block", margin: "0 auto 9px" }} />
-        <div style={{ fontFamily: SERIF, fontWeight: "700", fontSize: "12.5px", color: DARK_GREEN, letterSpacing: "1.4px" }}>
+      <div style={{ padding: "9px 14px 5px", textAlign: "center", position: "relative", zIndex: 1 }}>
+        <img src="/logo_ma.png" alt="logo" style={{ width: "54px", height: "54px", objectFit: "contain", display: "block", margin: "0 auto 4px", imageRendering: "auto" }} />
+        <div style={{ fontFamily: SERIF, fontWeight: "700", fontSize: "12px", color: DARK_GREEN, letterSpacing: "1.2px" }}>
           MARELI ACADEMY
         </div>
-        <div style={{ fontFamily: SERIF, fontStyle: "italic", fontSize: "6.8px", color: "#888", marginTop: "3px", lineHeight: "10px" }}>
+        <div style={{ fontFamily: SERIF, fontStyle: "italic", fontSize: "6.5px", color: "#888", marginTop: "2px", lineHeight: "9px" }}>
           Ss. Mary &amp; Elizabeth N&amp;P Academy · Buea
         </div>
       </div>
@@ -97,7 +97,7 @@ function Card({ person, cardRef, classNames, printMode }) {
       {/* Role ribbon */}
       <div style={{ background: color, position: "relative", zIndex: 1 }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}><tbody><tr>
-          <td style={{ height: "24px", textAlign: "center", verticalAlign: "middle", color: "#fff", fontSize: "8.5px", fontWeight: "700", letterSpacing: "2px", textTransform: "uppercase" }}>
+          <td style={{ height: "19px", textAlign: "center", verticalAlign: "middle", color: "#fff", fontSize: "8.5px", fontWeight: "700", letterSpacing: "2px", textTransform: "uppercase" }}>
             {ROLE_LABELS[person.role] || person.role}
           </td>
         </tr></tbody></table>
@@ -106,31 +106,31 @@ function Card({ person, cardRef, classNames, printMode }) {
       <div style={{ height: "2px", background: GOLD, opacity: 0.5, zIndex: 1 }} />
 
       {/* Body */}
-      <div style={{ flex: 1, padding: "16px 12px 4px", textAlign: "center", position: "relative", zIndex: 1 }}>
+      <div style={{ flex: 1, padding: "9px 12px 2px", textAlign: "center", position: "relative", zIndex: 1 }}>
 
         {person.avatar_url ? (
           <img src={person.avatar_url} alt={person.full_name}
-            style={{ width: "80px", height: "80px", borderRadius: "22px", objectFit: "cover", display: "block", margin: "0 auto",
+            style={{ width: "64px", height: "64px", borderRadius: "18px", objectFit: "cover", display: "block", margin: "0 auto",
               border: `3px solid ${GOLD}`, boxShadow: "0 3px 8px rgba(0,0,0,0.18)" }} />
         ) : (
           <div style={{
-            width: "80px", height: "80px", borderRadius: "22px", margin: "0 auto",
+            width: "64px", height: "64px", borderRadius: "18px", margin: "0 auto",
             background: color, boxSizing: "border-box",
             border: `3px solid ${GOLD}`, boxShadow: "0 3px 8px rgba(0,0,0,0.18)",
             display: "table",
           }}>
             <div style={{
               display: "table-cell", verticalAlign: "middle", textAlign: "center",
-              color: "#fff", fontSize: "24px", fontWeight: "700", fontFamily: SANS,
+              color: "#fff", fontSize: "20px", fontWeight: "700", fontFamily: SANS,
             }}>{initials}</div>
           </div>
         )}
 
-        <div style={{ marginTop: "11px", fontSize: "14.5px", fontWeight: "700", color: "#1a1a1a", lineHeight: "17px", fontFamily: SERIF }}>
+        <div style={{ marginTop: "7px", fontSize: "13.5px", fontWeight: "700", color: "#1a1a1a", lineHeight: "16px", fontFamily: SERIF }}>
           {person.full_name}
         </div>
 
-        <div style={{ width: "56px", height: "1px", background: GOLD, opacity: 0.6, margin: "9px auto 11px" }} />
+        <div style={{ width: "50px", height: "1px", background: GOLD, opacity: 0.6, margin: "6px auto 7px" }} />
 
         <InfoTable rows={[
           { Icon: BookOpen, text: classNames },
@@ -143,15 +143,15 @@ function Card({ person, cardRef, classNames, printMode }) {
       {/* Footer */}
       <div style={{ position: "relative", zIndex: 1 }}>
         <div style={{
-          height: "8px", margin: "0 14px",
+          height: "6px", margin: "0 14px",
           background: "repeating-linear-gradient(90deg, #333 0, #333 1px, transparent 1px, transparent 3px)",
           opacity: 0.45,
         }} />
         <table style={{ width: "100%", tableLayout: "fixed" }}>
           <tbody>
             <tr>
-              <td style={{ textAlign: "left", padding: "5px 10px 8px", fontSize: "6.5px", color: "#999", letterSpacing: "0.3px" }}>{idNumber}</td>
-              <td style={{ textAlign: "right", padding: "5px 10px 8px", fontSize: "6px", color: "#bbb" }}>Property of MARELI Academy</td>
+              <td style={{ textAlign: "left", padding: "3px 10px 5px", fontSize: "6.5px", color: "#999", letterSpacing: "0.3px" }}>{idNumber}</td>
+              <td style={{ textAlign: "right", padding: "3px 10px 5px", fontSize: "6px", color: "#bbb" }}>Property of MARELI Academy</td>
             </tr>
           </tbody>
         </table>
