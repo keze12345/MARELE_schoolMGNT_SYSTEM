@@ -4,7 +4,7 @@ import { useAuth } from "../context/AuthContext";
 import {
   Loader2, User, BookOpen, Receipt, CheckCircle,
   AlertCircle, Clock, ChevronDown, ChevronRight,
-  Pencil, Save, X, GraduationCap, TrendingUp
+  Pencil, Save, X, GraduationCap, TrendingUp, Calendar, XCircle
 } from "lucide-react";
 import toast from "react-hot-toast";
 
@@ -77,12 +77,14 @@ export default function ParentPortal() {
       { data: payments },
       { data: terms },
       { data: sequences },
+      { data: attendanceRows },
     ] = await Promise.all([
       supabase.from("class_students").select("student_id, class_id, classes(id, name, level)").in("student_id", ids),
       supabase.from("student_fees").select("*").in("student_id", ids).eq("academic_year", ACADEMIC_YEAR),
       supabase.from("fee_payments").select("*").order("payment_date", { ascending: false }),
       supabase.from("terms").select("*").order("created_at"),
       supabase.from("sequences").select("*").order("created_at"),
+      supabase.from("attendance").select("student_id, date, status").in("student_id", ids).order("date", { ascending: false }),
     ]);
 
     // For each child, fetch grades and subjects
@@ -102,6 +104,8 @@ export default function ParentPortal() {
         grades   = grd  || [];
       }
 
+      const attendance = (attendanceRows || []).filter(a => a.student_id === c.id);
+
       dataMap[c.id] = {
         class: cls?.classes || null,
         fee,
@@ -110,6 +114,7 @@ export default function ParentPortal() {
         grades,
         terms: terms || [],
         sequences: sequences || [],
+        attendance,
       };
     }
     setChildData(dataMap);
@@ -244,9 +249,10 @@ export default function ParentPortal() {
           {/* Tabs */}
           <div className="flex gap-1 border-b border-gray-100 dark:border-gray-700 overflow-x-auto">
             {[
-              { key:"overview", label:"Overview",      icon: User        },
-              { key:"fees",     label:"Fees",          icon: Receipt     },
-              { key:"grades",   label:"Grades",        icon: BookOpen    },
+              { key:"overview",   label:"Overview",    icon: User        },
+              { key:"fees",       label:"Fees",        icon: Receipt     },
+              { key:"grades",     label:"Grades",      icon: BookOpen    },
+              { key:"attendance", label:"Attendance",  icon: Calendar    },
             ].map(({ key, label, icon: Icon }) => (
               <button key={key} onClick={() => setActiveTab(key)}
                 className={`flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 whitespace-nowrap transition-all
@@ -542,6 +548,68 @@ export default function ParentPortal() {
               })()}
             </div>
           )}
+
+          {/* ── ATTENDANCE TAB ── */}
+          {activeTab === "attendance" && (() => {
+            const records = childData[activeChild.id]?.attendance || [];
+            const counts = { present: 0, absent: 0, late: 0, excused: 0 };
+            records.forEach(r => { if (counts[r.status] !== undefined) counts[r.status]++; });
+            const statusStyle = {
+              present: { color: "text-green-600 bg-green-50", icon: CheckCircle, label: "Present" },
+              absent:  { color: "text-red-600 bg-red-50",     icon: XCircle,     label: "Absent"  },
+              late:    { color: "text-amber-600 bg-amber-50", icon: Clock,       label: "Late"     },
+              excused: { color: "text-blue-600 bg-blue-50",   icon: AlertCircle, label: "Excused"  },
+            };
+
+            return (
+              <div className="p-5 space-y-5">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {Object.entries(counts).map(([key, count]) => {
+                    const s = statusStyle[key];
+                    const Icon = s.icon;
+                    return (
+                      <div key={key} className={`rounded-xl p-3 text-center ${s.color}`}>
+                        <Icon size={18} className="mx-auto mb-1"/>
+                        <div className="text-lg font-bold">{count}</div>
+                        <div className="text-xs">{s.label}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {records.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400 text-sm">No attendance records yet.</div>
+                ) : (
+                  <div className="border border-gray-100 dark:border-gray-700 rounded-xl overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 dark:bg-gray-800">
+                        <tr>
+                          <th className="text-left py-2.5 px-4 font-medium text-gray-500">Date</th>
+                          <th className="text-left py-2.5 px-4 font-medium text-gray-500">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {records.map((r, i) => {
+                          const s = statusStyle[r.status] || statusStyle.present;
+                          const Icon = s.icon;
+                          return (
+                            <tr key={i} className="border-t border-gray-100 dark:border-gray-700">
+                              <td className="py-2.5 px-4">{new Date(r.date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}</td>
+                              <td className="py-2.5 px-4">
+                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${s.color}`}>
+                                  <Icon size={12}/> {s.label}
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </>
       )}
 
