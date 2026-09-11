@@ -433,6 +433,7 @@ class _HomeShellState extends State<HomeShell> {
 
   String get _role => txt(_profile, 'role', 'staff');
   bool get _isTeacher => _role == 'teacher';
+  bool get _isParent => _role == 'parent';
   bool get _isAdmin =>
       _role == 'admin' || _role == 'headmaster' || _role == 'secretary';
   bool get _isBursar => _role == 'bursar';
@@ -445,37 +446,54 @@ class _HomeShellState extends State<HomeShell> {
       );
     }
 
+    // Parents must never enter the staff workspace.  Their account is scoped to
+    // children linked by `parent_user_id`, just like the web parent portal.
+    if (_isParent) return ParentHomeScreen(profile: _profile);
+
+    // Keep the mobile navigation aligned with the web role matrix. Hiding a
+    // destination is not enough; its screen is not added to the widget tree.
+    final canDashboard =
+        ['admin', 'headmaster', 'bursar', 'secretary'].contains(_role);
+    final canStudents =
+        ['admin', 'headmaster', 'secretary', 'teacher'].contains(_role);
+    final canTeaching = ['admin', 'headmaster', 'teacher'].contains(_role);
+    final canFees = ['admin', 'headmaster', 'bursar'].contains(_role);
+
     final pages = [
-      DashboardScreen(profile: _profile),
-      StudentsScreen(profile: _profile),
-      AttendanceScreen(profile: _profile),
-      GradesScreen(profile: _profile),
-      if (!_isTeacher) FeesScreen(profile: _profile),
+      if (canDashboard) DashboardScreen(profile: _profile),
+      if (canStudents) StudentsScreen(profile: _profile),
+      if (canTeaching) AttendanceScreen(profile: _profile),
+      if (canTeaching) GradesScreen(profile: _profile),
+      if (canFees) FeesScreen(profile: _profile),
       MoreScreen(profile: _profile, onRefreshProfile: _loadProfile),
     ];
 
     final navItems = [
-      const NavigationDestination(
-        icon: Icon(Icons.dashboard_outlined),
-        selectedIcon: Icon(Icons.dashboard),
-        label: 'Home',
-      ),
-      const NavigationDestination(
-        icon: Icon(Icons.groups_outlined),
-        selectedIcon: Icon(Icons.groups),
-        label: 'Students',
-      ),
-      const NavigationDestination(
-        icon: Icon(Icons.fact_check_outlined),
-        selectedIcon: Icon(Icons.fact_check),
-        label: 'Attend.',
-      ),
-      const NavigationDestination(
-        icon: Icon(Icons.grade_outlined),
-        selectedIcon: Icon(Icons.grade),
-        label: 'Grades',
-      ),
-      if (!_isTeacher)
+      if (canDashboard)
+        const NavigationDestination(
+          icon: Icon(Icons.dashboard_outlined),
+          selectedIcon: Icon(Icons.dashboard),
+          label: 'Home',
+        ),
+      if (canStudents)
+        const NavigationDestination(
+          icon: Icon(Icons.groups_outlined),
+          selectedIcon: Icon(Icons.groups),
+          label: 'Students',
+        ),
+      if (canTeaching)
+        const NavigationDestination(
+          icon: Icon(Icons.fact_check_outlined),
+          selectedIcon: Icon(Icons.fact_check),
+          label: 'Attend.',
+        ),
+      if (canTeaching)
+        const NavigationDestination(
+          icon: Icon(Icons.grade_outlined),
+          selectedIcon: Icon(Icons.grade),
+          label: 'Grades',
+        ),
+      if (canFees)
         const NavigationDestination(
           icon: Icon(Icons.receipt_long_outlined),
           selectedIcon: Icon(Icons.receipt_long),
@@ -572,7 +590,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _fees = [];
   List<Map<String, dynamic>> _terms = [];
   List<Map<String, dynamic>> _sequences = [];
-  List<Map<String, dynamic>> _staff = [];
   bool _backendOk = false;
 
   @override
@@ -590,29 +607,65 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final isTeacher = txt(widget.profile, 'role') == 'teacher';
       final uid = widget.profile?['id']?.toString();
 
-      final results = await Future.wait<dynamic>([
-        db
-            .from('students')
-            .select(
-                'id, full_name, class_level, gender, section, created_at, photo_url')
-            .order('created_at', ascending: false),
-        isTeacher && uid != null
-            ? db.from('classes').select().eq('teacher_id', uid).order('name')
-            : db.from('classes').select().order('name'),
-        db.from('student_fees').select('total_owed, total_paid'),
-        db.from('terms').select().order('created_at', ascending: false),
-        db.from('sequences').select().order('created_at', ascending: false),
-        db.from('profiles').select('id, role, full_name'),
-        _Api.healthy().then((v) => [v]),
-      ]);
-
-      _students = (results[0] as List).cast<Map<String, dynamic>>();
-      _classes = (results[1] as List).cast<Map<String, dynamic>>();
-      _fees = (results[2] as List).cast<Map<String, dynamic>>();
-      _terms = (results[3] as List).cast<Map<String, dynamic>>();
-      _sequences = (results[4] as List).cast<Map<String, dynamic>>();
-      _staff = (results[5] as List).cast<Map<String, dynamic>>();
-      _backendOk = (results[6] as List).first as bool;
+      if (isTeacher) {
+        // Do not fetch school-wide records then hide them in the UI. A teacher
+        // receives only the pupils assigned to their own classes.
+        _classes = uid == null
+            ? []
+            : (await db
+                    .from('classes')
+                    .select()
+                    .eq('teacher_id', uid)
+                    .order('name'))
+                .cast<Map<String, dynamic>>();
+        final classIds = _classes.map((c) => c['id']).toList();
+        if (classIds.isEmpty) {
+          _students = [];
+        } else {
+          final links = await db
+              .from('class_students')
+              .select('student_id')
+              .inFilter('class_id', classIds);
+          final studentIds = links.map((row) => row['student_id']).toList();
+          _students = studentIds.isEmpty
+              ? []
+              : (await db
+                      .from('students')
+                      .select(
+                          'id, full_name, class_level, gender, section, created_at, photo_url')
+                      .inFilter('id', studentIds)
+                      .order('created_at', ascending: false))
+                  .cast<Map<String, dynamic>>();
+        }
+        final context = await Future.wait<dynamic>([
+          db.from('terms').select().order('created_at', ascending: false),
+          db.from('sequences').select().order('created_at', ascending: false),
+          _Api.healthy(),
+        ]);
+        _terms = (context[0] as List).cast<Map<String, dynamic>>();
+        _sequences = (context[1] as List).cast<Map<String, dynamic>>();
+        _backendOk = context[2] as bool;
+        _fees = [];
+      } else {
+        final results = await Future.wait<dynamic>([
+          db
+              .from('students')
+              .select(
+                  'id, full_name, class_level, gender, section, created_at, photo_url')
+              .order('created_at', ascending: false),
+          db.from('classes').select().order('name'),
+          db.from('student_fees').select('total_owed, total_paid'),
+          db.from('terms').select().order('created_at', ascending: false),
+          db.from('sequences').select().order('created_at', ascending: false),
+          _Api.healthy(),
+        ]);
+        _students = (results[0] as List).cast<Map<String, dynamic>>();
+        _classes = (results[1] as List).cast<Map<String, dynamic>>();
+        _fees = (results[2] as List).cast<Map<String, dynamic>>();
+        _terms = (results[3] as List).cast<Map<String, dynamic>>();
+        _sequences = (results[4] as List).cast<Map<String, dynamic>>();
+        _backendOk = results[5] as bool;
+      }
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -660,7 +713,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             physics: const NeverScrollableScrollPhysics(),
             children: [
               _StatCard(
-                  label: 'Students',
+                  label: isTeacher ? 'My Students' : 'Students',
                   value: '${_students.length}',
                   icon: Icons.groups_rounded,
                   color: kPrimary),
@@ -682,15 +735,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     color: kAccent),
               ] else ...[
                 _StatCard(
-                    label: 'Staff',
-                    value:
-                        '${_staff.where((s) => s['role'] != 'admin').length}',
-                    icon: Icons.badge_rounded,
+                    label: 'Active Term',
+                    value: txt(activeTerm, 'name', 'None'),
+                    icon: Icons.calendar_month_rounded,
                     color: kSecondary),
                 _StatCard(
-                    label: 'My Classes',
-                    value: '${_classes.length}',
-                    icon: Icons.assignment_rounded,
+                    label: 'Active Sequence',
+                    value: txt(activeSeq, 'name', 'None'),
+                    icon: Icons.timeline_rounded,
                     color: kAccent),
               ],
             ],
@@ -715,7 +767,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
           const SizedBox(height: 16),
 
-          const _Label('Recent Students'),
+          _Label(isTeacher ? 'My Students' : 'Recent Students'),
           const SizedBox(height: 8),
           ..._students.take(5).map((s) => Padding(
                 padding: const EdgeInsets.only(bottom: 8),
@@ -723,6 +775,112 @@ class _DashboardScreenState extends State<DashboardScreen> {
               )),
         ],
       ),
+    );
+  }
+}
+
+// ─── Parent portal ───────────────────────────────────────────────────────────
+// This deliberately has its own shell instead of reusing staff screens. It
+// prevents a parent account from ever querying school-wide dashboard data.
+class ParentHomeScreen extends StatefulWidget {
+  const ParentHomeScreen({super.key, required this.profile});
+  final Map<String, dynamic>? profile;
+
+  @override
+  State<ParentHomeScreen> createState() => _ParentHomeScreenState();
+}
+
+class _ParentHomeScreenState extends State<ParentHomeScreen> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _children = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final uid = widget.profile?['id']?.toString();
+      _children = uid == null
+          ? []
+          : (await db
+                  .from('students')
+                  .select(
+                      'id, full_name, class_level, gender, section, photo_url')
+                  .eq('parent_user_id', uid)
+                  .order('full_name'))
+              .cast<Map<String, dynamic>>();
+    } catch (e) {
+      _error = e.toString();
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final name = txt(widget.profile, 'full_name', 'Parent').split(' ').first;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Parent Portal'),
+        actions: [
+          IconButton(
+            tooltip: 'Sign out',
+            onPressed: () => db.auth.signOut(),
+            icon: const Icon(Icons.logout, size: 20),
+          ),
+        ],
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: kPrimary))
+          : _error != null
+              ? _ErrorView(msg: _error!, onRetry: _fetch)
+              : RefreshIndicator(
+                  color: kPrimary,
+                  onRefresh: _fetch,
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                    children: [
+                      Text('Welcome, $name 👋',
+                          style: const TextStyle(
+                              fontSize: 22, fontWeight: FontWeight.w900)),
+                      const SizedBox(height: 4),
+                      const Text('Your children',
+                          style: TextStyle(fontSize: 13, color: kMuted)),
+                      const SizedBox(height: 16),
+                      if (_children.isEmpty)
+                        const _EmptyState(
+                            msg:
+                                'No children are linked to your account yet.\nPlease contact the school office.')
+                      else
+                        ..._children.map((child) => Container(
+                              margin: const EdgeInsets.only(bottom: 10),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: kBorder),
+                              ),
+                              child: ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 6),
+                                leading: _Avatar(row: child),
+                                title: Text(txt(child, 'full_name', 'Student'),
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w700)),
+                                subtitle: Text(
+                                    '${txt(child, 'class_level', 'Class not set')} · ${txt(child, 'section', '')}'),
+                              ),
+                            )),
+                    ],
+                  ),
+                ),
     );
   }
 }
@@ -749,6 +907,8 @@ class _StudentsScreenState extends State<StudentsScreen> {
   }
 
   bool get _isTeacher => txt(widget.profile, 'role') == 'teacher';
+  bool get _canRegister => ['admin', 'headmaster', 'secretary']
+      .contains(txt(widget.profile, 'role'));
 
   Future<void> _fetch() async {
     setState(() {
@@ -786,9 +946,28 @@ class _StudentsScreenState extends State<StudentsScreen> {
                 .order('full_name'))
             .cast<Map<String, dynamic>>();
       } else {
+        final activeYear = await db
+            .from('academic_years')
+            .select('id')
+            .eq('is_active', true)
+            .maybeSingle();
+        final yearId = activeYear?['id'];
+        if (yearId == null) {
+          _students = [];
+          _classes = [];
+          return;
+        }
         final results = await Future.wait<dynamic>([
-          db.from('students').select().order('full_name'),
-          db.from('classes').select('id, name, level').order('name'),
+          db
+              .from('students')
+              .select()
+              .eq('academic_year_id', yearId)
+              .order('full_name'),
+          db
+              .from('classes')
+              .select('id, name, level, academic_year_id')
+              .eq('academic_year_id', yearId)
+              .order('name'),
         ]);
         _students = (results[0] as List).cast<Map<String, dynamic>>();
         _classes = (results[1] as List).cast<Map<String, dynamic>>();
@@ -832,7 +1011,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
                 child: Text('Students',
                     style:
                         TextStyle(fontSize: 22, fontWeight: FontWeight.w900))),
-            if (!_isTeacher)
+            if (_canRegister)
               FilledButton.icon(
                 onPressed: _addStudent,
                 icon: const Icon(Icons.add, size: 18),
@@ -1993,15 +2172,35 @@ class _MoreScreenState extends State<MoreScreen> {
       _error = null;
     });
     try {
-      final results = await Future.wait<dynamic>([
-        _Api.users(),
-        db
-            .from('classes')
-            .select('id, name, level, teacher_name')
-            .order('name'),
-      ]);
-      _staff = results[0] as List<Map<String, dynamic>>;
-      _classes = (results[1] as List).cast<Map<String, dynamic>>();
+      final role = txt(widget.profile, 'role');
+      final isTeacher = role == 'teacher';
+      final canManageDirectory = role == 'admin' || role == 'headmaster';
+      final uid = widget.profile?['id']?.toString();
+      if (isTeacher) {
+        // Teachers do not need a directory of staff or other classes.
+        _staff = [];
+        _classes = uid == null
+            ? []
+            : (await db
+                    .from('classes')
+                    .select('id, name, level, teacher_name')
+                    .eq('teacher_id', uid)
+                    .order('name'))
+                .cast<Map<String, dynamic>>();
+      } else if (canManageDirectory) {
+        final results = await Future.wait<dynamic>([
+          _Api.users(),
+          db
+              .from('classes')
+              .select('id, name, level, teacher_name')
+              .order('name'),
+        ]);
+        _staff = results[0] as List<Map<String, dynamic>>;
+        _classes = (results[1] as List).cast<Map<String, dynamic>>();
+      } else {
+        _staff = [];
+        _classes = [];
+      }
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -2017,6 +2216,8 @@ class _MoreScreenState extends State<MoreScreen> {
 
     final teachers = _staff.where((s) => s['role'] == 'teacher').toList();
     final role = txt(widget.profile, 'role');
+    final isTeacher = role == 'teacher';
+    final canManageDirectory = role == 'admin' || role == 'headmaster';
 
     return RefreshIndicator(
       color: kPrimary,
@@ -2102,16 +2303,18 @@ class _MoreScreenState extends State<MoreScreen> {
                   value: '${_classes.length}',
                   icon: Icons.class_rounded,
                   color: kPrimary),
-              _StatCard(
-                  label: 'Teachers',
-                  value: '${teachers.length}',
-                  icon: Icons.school_rounded,
-                  color: kSecondary),
-              _StatCard(
-                  label: 'All Staff',
-                  value: '${_staff.length}',
-                  icon: Icons.badge_rounded,
-                  color: const Color(0xFF2563EB)),
+              if (canManageDirectory) ...[
+                _StatCard(
+                    label: 'Teachers',
+                    value: '${teachers.length}',
+                    icon: Icons.school_rounded,
+                    color: kSecondary),
+                _StatCard(
+                    label: 'All Staff',
+                    value: '${_staff.length}',
+                    icon: Icons.badge_rounded,
+                    color: const Color(0xFF2563EB)),
+              ],
               _StatCard(
                   label: 'My Role',
                   value: role,
@@ -2122,81 +2325,85 @@ class _MoreScreenState extends State<MoreScreen> {
           const SizedBox(height: 16),
 
           // Classes
-          const _Label('Classes'),
-          const SizedBox(height: 8),
-          ..._classes.map((c) => Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: kBorder),
-                ),
-                child: ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                  leading: Container(
-                    width: 38,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: kPrimary.withAlpha(16),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: const Icon(Icons.class_outlined,
-                        color: kPrimary, size: 18),
+          if (isTeacher || canManageDirectory) ...[
+            const _Label('Classes'),
+            const SizedBox(height: 8),
+            ..._classes.map((c) => Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: kBorder),
                   ),
-                  title: Text(txt(c, 'name', 'Class'),
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 14)),
-                  subtitle: Text(txt(c, 'level', '—'),
-                      style: const TextStyle(fontSize: 12)),
-                  trailing: txt(c, 'teacher_name').isNotEmpty
-                      ? Text(txt(c, 'teacher_name'),
-                          style: const TextStyle(
-                              fontSize: 11,
-                              color: kPrimary,
-                              fontWeight: FontWeight.w600))
-                      : const Text('No teacher',
-                          style: TextStyle(fontSize: 11, color: kMuted)),
-                ),
-              )),
+                  child: ListTile(
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                    leading: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: kPrimary.withAlpha(16),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.class_outlined,
+                          color: kPrimary, size: 18),
+                    ),
+                    title: Text(txt(c, 'name', 'Class'),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 14)),
+                    subtitle: Text(txt(c, 'level', '—'),
+                        style: const TextStyle(fontSize: 12)),
+                    trailing: txt(c, 'teacher_name').isNotEmpty
+                        ? Text(txt(c, 'teacher_name'),
+                            style: const TextStyle(
+                                fontSize: 11,
+                                color: kPrimary,
+                                fontWeight: FontWeight.w600))
+                        : const Text('No teacher',
+                            style: TextStyle(fontSize: 11, color: kMuted)),
+                  ),
+                )),
+          ],
           const SizedBox(height: 16),
 
           // Staff
-          const _Label('Staff Members'),
-          const SizedBox(height: 8),
-          ..._staff.where((s) => s['role'] != 'admin').map((member) =>
-              Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: kBorder),
-                ),
-                child: ListTile(
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                  leading: CircleAvatar(
-                    radius: 20,
-                    backgroundColor: kSecondary.withAlpha(24),
-                    foregroundColor: kSecondary,
-                    child: Text(
-                      txt(member, 'full_name', 'S')
-                          .substring(0, 1)
-                          .toUpperCase(),
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
+          if (canManageDirectory) ...[
+            const _Label('Staff Members'),
+            const SizedBox(height: 8),
+            ..._staff.where((s) => s['role'] != 'admin').map((member) =>
+                Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: kBorder),
                   ),
-                  title: Text(txt(member, 'full_name', 'Staff'),
-                      style: const TextStyle(
-                          fontWeight: FontWeight.w700, fontSize: 14)),
-                  subtitle: Text(txt(member, 'role', 'staff'),
-                      style: const TextStyle(fontSize: 12)),
-                  trailing: txt(member, 'phone').isNotEmpty
-                      ? Text(txt(member, 'phone'),
-                          style: const TextStyle(fontSize: 11, color: kMuted))
-                      : null,
-                ),
-              )),
+                  child: ListTile(
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                    leading: CircleAvatar(
+                      radius: 20,
+                      backgroundColor: kSecondary.withAlpha(24),
+                      foregroundColor: kSecondary,
+                      child: Text(
+                        txt(member, 'full_name', 'S')
+                            .substring(0, 1)
+                            .toUpperCase(),
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                    ),
+                    title: Text(txt(member, 'full_name', 'Staff'),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 14)),
+                    subtitle: Text(txt(member, 'role', 'staff'),
+                        style: const TextStyle(fontSize: 12)),
+                    trailing: txt(member, 'phone').isNotEmpty
+                        ? Text(txt(member, 'phone'),
+                            style: const TextStyle(fontSize: 11, color: kMuted))
+                        : null,
+                  ),
+                )),
+          ],
           const SizedBox(height: 8),
 
           // Sign out
@@ -2230,23 +2437,10 @@ class _StudentFormDialogState extends State<StudentFormDialog> {
   final _name = TextEditingController();
   final _parent = TextEditingController();
   final _phone = TextEditingController();
-  String _level = 'Class 1';
+  String? _classId;
   String _gender = 'male';
   String _section = 'anglophone';
   bool _saving = false;
-
-  static const _levels = [
-    'Day Care',
-    'Pre-Nursery',
-    'Nursery 1',
-    'Nursery 2',
-    'Class 1',
-    'Class 2',
-    'Class 3',
-    'Class 4',
-    'Class 5',
-    'Class 6',
-  ];
 
   @override
   void dispose() {
@@ -2257,16 +2451,33 @@ class _StudentFormDialogState extends State<StudentFormDialog> {
   }
 
   Future<void> _save() async {
-    if (_name.text.trim().isEmpty) return;
+    if (_name.text.trim().isEmpty || _classId == null) {
+      snack(context, 'Enter the student name and select a class', err: true);
+      return;
+    }
     setState(() => _saving = true);
     try {
-      await db.from('students').insert({
-        'full_name': _name.text.trim(),
-        'class_level': _level,
-        'gender': _gender,
-        'section': _section,
-        'parent_name': _parent.text.trim(),
-        'parent_phone': _phone.text.trim(),
+      final selectedClass = widget.classes
+          .where((c) => c['id'].toString() == _classId)
+          .firstOrNull;
+      if (selectedClass == null)
+        throw Exception('Selected class was not found');
+      final student = await db
+          .from('students')
+          .insert({
+            'full_name': _name.text.trim(),
+            'class_level': txt(selectedClass, 'level'),
+            'gender': _gender,
+            'section': _section,
+            'parent_name': _parent.text.trim(),
+            'parent_phone': _phone.text.trim(),
+            'academic_year_id': selectedClass['academic_year_id'],
+          })
+          .select('id')
+          .single();
+      await db.from('class_students').insert({
+        'student_id': student['id'],
+        'class_id': selectedClass['id'],
       });
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
@@ -2290,12 +2501,14 @@ class _StudentFormDialogState extends State<StudentFormDialog> {
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
-            value: _level,
-            decoration: const InputDecoration(labelText: 'Class level'),
-            items: _levels
-                .map((l) => DropdownMenuItem(value: l, child: Text(l)))
+            value: _classId,
+            decoration: const InputDecoration(labelText: 'Class *'),
+            items: widget.classes
+                .map((c) => DropdownMenuItem(
+                    value: c['id'].toString(),
+                    child: Text('${txt(c, 'name')} · ${txt(c, 'level')}')))
                 .toList(),
-            onChanged: (v) => setState(() => _level = v ?? _level),
+            onChanged: (v) => setState(() => _classId = v),
           ),
           const SizedBox(height: 10),
           DropdownButtonFormField<String>(
