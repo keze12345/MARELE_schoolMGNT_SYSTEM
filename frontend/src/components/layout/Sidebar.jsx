@@ -3,7 +3,7 @@ import { useAuth } from "../../context/AuthContext";
 import {
   LayoutDashboard, Users, UserCheck, BookOpen,
   Calendar, Receipt, Settings, LogOut, FileText, ClipboardList,
-  ChevronRight, Menu, X, Layers, Sun, Moon, Baby
+  ChevronRight, Menu, X, Layers, Sun, Moon, Baby, IdCard
 } from "lucide-react";
 import { useState } from "react";
 
@@ -14,6 +14,7 @@ const navItems = [
   { to: "/setup",        icon: Layers,          label: "Academic Setup", roles: ["admin","headmaster"] },
   { to: "/students",     icon: Users,           label: "Students",       roles: ["admin","headmaster","secretary","teacher"] },
   { to: "/staff",        icon: UserCheck,       label: "Staff",          roles: ["admin","headmaster"] },
+  { to: "/id-cards",     icon: IdCard,          label: "ID Cards",       roles: ["admin","headmaster"] },
   { to: "/grades",       icon: BookOpen,        label: "Grades",         roles: ["admin","headmaster","teacher"] },
   { to: "/report-cards", icon: FileText,        label: "Report Cards",   roles: ["admin","headmaster"] },
   { to: "/classlists",   icon: ClipboardList,   label: "Class Lists",    roles: ["admin","headmaster","teacher"] },

@@ -13,8 +13,19 @@ router.get("/", async (req, res) => {
     .order("created_at", { ascending: false });
 
   if (error) return res.status(400).json({ error: error.message });
-  cache.set("all_profiles", data, 60);
-  res.json(data);
+
+  // Merge in emails from auth (not stored in profiles table)
+  let merged = data;
+  try {
+    const { data: authList } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+    const emailById = new Map((authList?.users || []).map(u => [u.id, u.email]));
+    merged = data.map(p => ({ ...p, email: emailById.get(p.id) || null }));
+  } catch (e) {
+    console.warn("Could not merge auth emails:", e.message);
+  }
+
+  cache.set("all_profiles", merged, 60);
+  res.json(merged);
 });
 
 router.post("/", async (req, res) => {

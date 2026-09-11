@@ -14,6 +14,7 @@ import ReportCards from "./pages/ReportCards";
 import Fees from "./pages/Fees";
 import ParentPortal from "./pages/ParentPortal";
 import Settings from "./pages/Settings";
+import IDCards from "./pages/IDCards";
 
 function ProtectedLayout() {
   const { user, profile, loading } = useAuth();
@@ -55,6 +56,7 @@ function App() {
             <Route path="/setup"        element={<AcademicSetup />} />
             <Route path="/report-cards" element={<ReportCards />}   />
             <Route path="/settings"     element={<Settings />}      />
+            <Route path="/id-cards"     element={<IDCards />}       />
             <Route path="/fees"         element={<Fees />}          />
             <Route path="/parent"       element={<ParentPortal />}  />
             <Route path="*"             element={<Navigate to="/dashboard" replace />} />
