@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useAuth } from "../context/AuthContext";
 import { supabase } from "../lib/supabase";
+import { computeTotalOwed } from "../lib/feeCalc";
 import {
   Plus, Search, Loader2, X, Pencil, Camera, User, Trash2,
   Users, List, LayoutGrid, BookOpen, ChevronDown, ChevronRight, UserPlus,
@@ -13,7 +14,7 @@ const NURSERY = ["Day Care","Pre-Nursery","Nursery 1","Nursery 2"];
 const EMPTY_FORM = {
   // Section A - Pupil Info
   full_name:"", date_of_birth:"", gender:"male", birth_certificate_no:"",
-  class_level:"Class 1", section:"anglophone", is_repeating:false,
+  class_level:"Class 1", section:"anglophone", is_repeating:false, is_new_pupil:true,
   place_of_birth:"", area_of_residence:"", region:"South West", quarter:"",
   blood_group:"", allergies:"", photo_url:"",
   // Section B - Parents
@@ -188,7 +189,7 @@ export default function Students() {
   // ── Assign student to class ──
   // Auto-creates a student_fees row if the class belongs to a holiday program
   // and the student doesn't already have a fee record for that program.
-  async function createHolidayFeeIfNeeded(studentId, classId) {
+  async function createHolidayFeeIfNeeded(studentId, classId, isNewPupil) {
     // Works for both regular and holiday program years
     const { data: cls } = await supabase
       .from("classes").select("academic_year_id, level").eq("id", classId).single();
@@ -223,9 +224,9 @@ export default function Students() {
     if (!matched) matched = allStructs[0];
     if (!matched) return;
 
-    // Calculate total owed = sum of all components for this level group
-    const levelStructs = allStructs.filter(s => s.level_group === matched.level_group);
-    const totalOwed = levelStructs.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+    // Calculate total owed correctly: tuition components + exactly ONE matching
+    // registration line (New or Old), never both.
+    const totalOwed = computeTotalOwed(allStructs, matched.level_group, !!isNewPupil);
 
     await supabase.from("student_fees").insert([{
       student_id: studentId,
@@ -246,7 +247,7 @@ export default function Students() {
       .insert([{ student_id: showAssign.id, class_id: assignClass }]);
     if (error) toast.error(error.message);
     else {
-      await createHolidayFeeIfNeeded(showAssign.id, assignClass);
+      await createHolidayFeeIfNeeded(showAssign.id, assignClass, showAssign.is_new_pupil ?? false);
       toast.success(`${showAssign.full_name} assigned to class!`);
       setShowAssign(null); setAssignClass(""); fetchAll();
     }
@@ -300,7 +301,7 @@ export default function Students() {
         const match = classes.find(c => c.level === form.class_level);
         if (match) {
           await supabase.from("class_students").insert([{ student_id: data.id, class_id: match.id }]);
-          await createHolidayFeeIfNeeded(data.id, match.id);
+          await createHolidayFeeIfNeeded(data.id, match.id, data.is_new_pupil ?? true);
         }
         // Create parent account automatically
         try {
@@ -378,7 +379,7 @@ export default function Students() {
   }
 
   function downloadTemplate() {
-    const headers = ["full_name","gender","date_of_birth","place_of_birth","area_of_residence",
+    const headers = ["full_name","pupil_type","gender","date_of_birth","place_of_birth","area_of_residence",
       "father_name","father_phone","father_occupation",
       "mother_name","mother_phone","mother_occupation",
       "guardian1_name","guardian1_phone","guardian1_relationship",
@@ -387,7 +388,7 @@ export default function Students() {
       "has_health_concerns","health_concern_details",
       "is_on_medication","medication_details",
       "blood_group","allergies","birth_certificate_no"];
-    const example = ["John Doe","male","2018-01-15","Buea","Molyko",
+    const example = ["John Doe","new","male","2018-01-15","Buea","Molyko",
       "Mr Doe","677000001","Engineer",
       "Mrs Doe","677000002","Teacher",
       "","","","","","","","","",
@@ -435,8 +436,12 @@ export default function Students() {
         const fullName = obj["full_name"] || obj["name"] || "";
         if (!fullName) continue;
 
+        const pupilTypeRaw = (obj["pupil_type"] || "").toLowerCase().trim();
+        const isNewPupil = pupilTypeRaw.startsWith("new");
+
         const payload = {
           full_name:         fullName.trim(),
+          is_new_pupil:      isNewPupil,
           gender:            normalizeGender(obj["gender"]),
           date_of_birth:     obj["date_of_birth"] || null,
           place_of_birth:    obj["place_of_birth"] || null,
@@ -523,13 +528,12 @@ export default function Students() {
                   s.level_group.toLowerCase().includes(studentLevel.toLowerCase())
                 ) || allStructs[0];
                 if (matched) {
-                  const levelStructs = allStructs.filter(s => s.level_group === matched.level_group);
-                  const totalOwed = levelStructs.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+                  // Compute per-student, since New/Old pupils owe different registration amounts
                   const feeRows = newStudents.map(s => ({
                     student_id: s.id,
                     academic_year: year.name,
                     level_group: matched.level_group,
-                    total_owed: totalOwed,
+                    total_owed: computeTotalOwed(allStructs, matched.level_group, !!s.is_new_pupil),
                     total_paid: 0,
                   }));
                   await supabase.from("student_fees").insert(feeRows);
@@ -644,7 +648,7 @@ export default function Students() {
       full_name: s.full_name||"", date_of_birth: s.date_of_birth||"",
       gender: s.gender||"male", birth_certificate_no: s.birth_certificate_no||"",
       class_level: s.class_level||"Class 1", section: s.section||"anglophone",
-      is_repeating: s.is_repeating||false, quarter: s.quarter||"",
+      is_repeating: s.is_repeating||false, is_new_pupil: s.is_new_pupil ?? false, quarter: s.quarter||"",
       region: s.region||"South West", parent_name: s.parent_name||"",
       parent_phone: s.parent_phone||"", parent_network: s.parent_network||"mtn",
       parent_email: s.parent_email||"", blood_group: s.blood_group||"",
@@ -1177,6 +1181,24 @@ export default function Students() {
                         className="w-4 h-4 accent-green-700 rounded"/>
                       <span className="text-sm text-gray-700">This student is repeating the class</span>
                     </label>
+                  </div>
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Pupil status *</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="is_new_pupil" checked={form.is_new_pupil === true}
+                          onChange={() => setForm(p => ({ ...p, is_new_pupil: true }))}
+                          className="w-4 h-4 accent-green-700"/>
+                        <span className="text-sm text-gray-700">New pupil (never enrolled here before)</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="radio" name="is_new_pupil" checked={form.is_new_pupil === false}
+                          onChange={() => setForm(p => ({ ...p, is_new_pupil: false }))}
+                          className="w-4 h-4 accent-green-700"/>
+                        <span className="text-sm text-gray-700">Old / returning pupil</span>
+                      </label>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">Determines which registration fee applies — this cannot be changed automatically later.</p>
                   </div>
                 </div>
               </div>
