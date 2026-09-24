@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // ─── Config (keep these out of UI) ──────────────────────────────────────────
@@ -548,6 +549,13 @@ class _HomeShellState extends State<HomeShell> {
         ),
         actions: [
           IconButton(
+            tooltip: 'My profile',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => ProfileSettingsScreen(
+                    profile: _profile, onSaved: _loadProfile))),
+            icon: const Icon(Icons.person_outline),
+          ),
+          IconButton(
             tooltip: 'Sign out',
             onPressed: () => db.auth.signOut(),
             icon: const Icon(Icons.logout, size: 20),
@@ -590,7 +598,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
   List<Map<String, dynamic>> _fees = [];
   List<Map<String, dynamic>> _terms = [];
   List<Map<String, dynamic>> _sequences = [];
-  bool _backendOk = false;
 
   @override
   void initState() {
@@ -640,31 +647,46 @@ class _DashboardScreenState extends State<DashboardScreen> {
         final context = await Future.wait<dynamic>([
           db.from('terms').select().order('created_at', ascending: false),
           db.from('sequences').select().order('created_at', ascending: false),
-          _Api.healthy(),
         ]);
         _terms = (context[0] as List).cast<Map<String, dynamic>>();
         _sequences = (context[1] as List).cast<Map<String, dynamic>>();
-        _backendOk = context[2] as bool;
         _fees = [];
       } else {
+        final activeYear = await db
+            .from('academic_years')
+            .select('id')
+            .eq('is_active', true)
+            .maybeSingle();
+        final yearId = activeYear?['id'];
+        if (yearId == null) {
+          _students = [];
+          _classes = [];
+          _fees = [];
+          _terms = [];
+          _sequences = [];
+          return;
+        }
         final results = await Future.wait<dynamic>([
           db
               .from('students')
               .select(
                   'id, full_name, class_level, gender, section, created_at, photo_url')
+              .eq('academic_year_id', yearId)
               .order('created_at', ascending: false),
-          db.from('classes').select().order('name'),
+          db
+              .from('classes')
+              .select()
+              .eq('academic_year_id', yearId)
+              .order('name'),
           db.from('student_fees').select('total_owed, total_paid'),
           db.from('terms').select().order('created_at', ascending: false),
           db.from('sequences').select().order('created_at', ascending: false),
-          _Api.healthy(),
         ]);
         _students = (results[0] as List).cast<Map<String, dynamic>>();
         _classes = (results[1] as List).cast<Map<String, dynamic>>();
         _fees = (results[2] as List).cast<Map<String, dynamic>>();
         _terms = (results[3] as List).cast<Map<String, dynamic>>();
         _sequences = (results[4] as List).cast<Map<String, dynamic>>();
-        _backendOk = results[5] as bool;
       }
     } catch (e) {
       _error = e.toString();
@@ -699,7 +721,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   fontSize: 22, fontWeight: FontWeight.w900, color: kInk)),
           const SizedBox(height: 2),
           Text(
-              'Live system · ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
+              '${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
               style: const TextStyle(fontSize: 13, color: kMuted)),
           const SizedBox(height: 16),
 
@@ -745,24 +767,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     icon: Icons.timeline_rounded,
                     color: kAccent),
               ],
-            ],
-          ),
-          const SizedBox(height: 16),
-
-          // Status card
-          _SectionCard(
-            title: 'Live Status',
-            icon: Icons.circle,
-            iconColor: _backendOk ? kPrimary : kAccent,
-            children: [
-              _InfoRow(Icons.cloud_done_outlined, 'Backend API',
-                  _backendOk ? 'Online ✓' : 'Offline'),
-              _InfoRow(Icons.calendar_month_outlined, 'Active Term',
-                  txt(activeTerm, 'name', 'Not set')),
-              _InfoRow(Icons.timeline_outlined, 'Active Sequence',
-                  txt(activeSeq, 'name', 'Not set')),
-              _InfoRow(Icons.person_outline, 'Signed in as',
-                  txt(widget.profile, 'role', '—').toUpperCase()),
             ],
           ),
           const SizedBox(height: 16),
@@ -831,6 +835,13 @@ class _ParentHomeScreenState extends State<ParentHomeScreen> {
       appBar: AppBar(
         title: const Text('Parent Portal'),
         actions: [
+          IconButton(
+            tooltip: 'My profile',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) =>
+                    ProfileSettingsScreen(profile: widget.profile))),
+            icon: const Icon(Icons.person_outline),
+          ),
           IconButton(
             tooltip: 'Sign out',
             onPressed: () => db.auth.signOut(),
@@ -987,6 +998,21 @@ class _StudentsScreenState extends State<StudentsScreen> {
     if (ok == true) _fetch();
   }
 
+  Future<void> _editStudent(Map<String, dynamic> student) async {
+    final links = await db
+        .from('class_students')
+        .select('class_id')
+        .eq('student_id', student['id'])
+        .limit(1);
+    final editable = Map<String, dynamic>.from(student);
+    if (links.isNotEmpty) editable['class_id'] = links.first['class_id'];
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => StudentFormDialog(classes: _classes, student: editable),
+    );
+    if (ok == true) _fetch();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading)
@@ -1038,7 +1064,11 @@ class _StudentsScreenState extends State<StudentsScreen> {
           else
             ...filtered.map((s) => Padding(
                   padding: const EdgeInsets.only(bottom: 8),
-                  child: _StudentCard(student: s, showDetails: true),
+                  child: _StudentCard(
+                    student: s,
+                    showDetails: true,
+                    onTap: _canRegister ? () => _editStudent(s) : null,
+                  ),
                 )),
         ],
       ),
@@ -2139,6 +2169,157 @@ class _HistorySheet extends StatelessWidget {
   }
 }
 
+// ─── Personal profile ─────────────────────────────────────────────────────────
+class ProfileSettingsScreen extends StatefulWidget {
+  const ProfileSettingsScreen({super.key, required this.profile, this.onSaved});
+  final Map<String, dynamic>? profile;
+  final VoidCallback? onSaved;
+
+  @override
+  State<ProfileSettingsScreen> createState() => _ProfileSettingsScreenState();
+}
+
+class _ProfileSettingsScreenState extends State<ProfileSettingsScreen> {
+  late final TextEditingController _name;
+  late final TextEditingController _phone;
+  late final TextEditingController _password;
+  String _gender = '';
+  bool _saving = false;
+  XFile? _avatar;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: txt(widget.profile, 'full_name'));
+    _phone = TextEditingController(text: txt(widget.profile, 'phone'));
+    _password = TextEditingController();
+    _gender = txt(widget.profile, 'gender');
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _phone.dispose();
+    _password.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickAvatar(ImageSource source) async {
+    final image =
+        await ImagePicker().pickImage(source: source, imageQuality: 82);
+    if (image != null && mounted) setState(() => _avatar = image);
+  }
+
+  Future<void> _save() async {
+    if (_name.text.trim().isEmpty) {
+      snack(context, 'Please enter your full name', err: true);
+      return;
+    }
+    if (_password.text.isNotEmpty && _password.text.length < 8) {
+      snack(context, 'Password must be at least 8 characters', err: true);
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final uid = db.auth.currentUser?.id;
+      if (uid == null)
+        throw Exception('Your session has expired. Please sign in again.');
+      final updates = <String, dynamic>{
+        'full_name': _name.text.trim(),
+        'phone': _phone.text.trim().isEmpty ? null : _phone.text.trim(),
+        'gender': _gender.isEmpty ? null : _gender,
+      };
+      if (_avatar != null) {
+        final ext = _avatar!.name.split('.').last.toLowerCase();
+        final path = '$uid/avatar.$ext';
+        await db.storage.from('avatars').uploadBinary(
+            path, await _avatar!.readAsBytes(),
+            fileOptions: const FileOptions(upsert: true));
+        final url = db.storage.from('avatars').getPublicUrl(path);
+        updates['avatar_url'] =
+            '$url?t=${DateTime.now().millisecondsSinceEpoch}';
+      }
+      await db.from('profiles').update(updates).eq('id', uid);
+      if (_password.text.isNotEmpty) {
+        await db.auth.updateUser(UserAttributes(password: _password.text));
+      }
+      widget.onSaved?.call();
+      if (mounted) {
+        snack(context, 'Profile updated');
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) snack(context, e.toString(), err: true);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final profileForAvatar = Map<String, dynamic>.from(widget.profile ?? {});
+    if (_avatar != null) profileForAvatar.remove('avatar_url');
+    return Scaffold(
+      appBar: AppBar(title: const Text('My Profile')),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        Center(child: _Avatar(row: profileForAvatar, radius: 42)),
+        const SizedBox(height: 10),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          TextButton.icon(
+              onPressed: _saving ? null : () => _pickAvatar(ImageSource.camera),
+              icon: const Icon(Icons.camera_alt_outlined),
+              label: const Text('Camera')),
+          TextButton.icon(
+              onPressed:
+                  _saving ? null : () => _pickAvatar(ImageSource.gallery),
+              icon: const Icon(Icons.photo_library_outlined),
+              label: const Text('Gallery')),
+        ]),
+        if (_avatar != null)
+          const Center(
+              child: Text('New photo selected',
+                  style: TextStyle(fontSize: 12, color: kPrimary))),
+        const SizedBox(height: 12),
+        TextField(
+            controller: _name,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(labelText: 'Full name')),
+        const SizedBox(height: 12),
+        TextField(
+            controller: _phone,
+            keyboardType: TextInputType.phone,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(labelText: 'Phone number')),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          value: _gender.isEmpty ? null : _gender,
+          decoration: const InputDecoration(labelText: 'Gender'),
+          items: const [
+            DropdownMenuItem(value: 'male', child: Text('Male')),
+            DropdownMenuItem(value: 'female', child: Text('Female'))
+          ],
+          onChanged: (value) => setState(() => _gender = value ?? ''),
+        ),
+        const SizedBox(height: 24),
+        const Text('Security',
+            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+        const SizedBox(height: 8),
+        TextField(
+            controller: _password,
+            obscureText: true,
+            decoration: const InputDecoration(
+                labelText: 'New password',
+                helperText: 'Leave blank to keep your current password')),
+        const SizedBox(height: 24),
+        FilledButton.icon(
+            onPressed: _saving ? null : _save,
+            icon: const Icon(Icons.save_outlined),
+            label: Text(_saving ? 'Saving…' : 'Save changes')),
+      ]),
+    );
+  }
+}
+
 // ─── More ─────────────────────────────────────────────────────────────────────
 class MoreScreen extends StatefulWidget {
   const MoreScreen(
@@ -2241,19 +2422,7 @@ class _MoreScreenState extends State<MoreScreen> {
               borderRadius: BorderRadius.circular(14),
             ),
             child: Row(children: [
-              CircleAvatar(
-                radius: 26,
-                backgroundColor: Colors.white.withAlpha(30),
-                child: Text(
-                  txt(widget.profile, 'full_name', 'U')
-                      .substring(0, 1)
-                      .toUpperCase(),
-                  style: const TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.white),
-                ),
-              ),
+              _Avatar(row: widget.profile ?? {}, radius: 26),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -2279,6 +2448,15 @@ class _MoreScreenState extends State<MoreScreen> {
                                 fontWeight: FontWeight.w700)),
                       ),
                     ]),
+              ),
+              IconButton(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => ProfileSettingsScreen(
+                        profile: widget.profile,
+                        onSaved: widget.onRefreshProfile))),
+                icon: const Icon(Icons.edit_outlined,
+                    color: Colors.white, size: 20),
+                tooltip: 'Edit my profile',
               ),
               IconButton(
                 onPressed: () => db.auth.signOut(),
@@ -2427,8 +2605,9 @@ class _MoreScreenState extends State<MoreScreen> {
 
 // ─── Student Form Dialog ───────────────────────────────────────────────────────
 class StudentFormDialog extends StatefulWidget {
-  const StudentFormDialog({super.key, required this.classes});
+  const StudentFormDialog({super.key, required this.classes, this.student});
   final List<Map<String, dynamic>> classes;
+  final Map<String, dynamic>? student;
   @override
   State<StudentFormDialog> createState() => _StudentFormDialogState();
 }
@@ -2441,6 +2620,22 @@ class _StudentFormDialogState extends State<StudentFormDialog> {
   String _gender = 'male';
   String _section = 'anglophone';
   bool _saving = false;
+  XFile? _photo;
+
+  bool get _editing => widget.student != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final student = widget.student;
+    if (student == null) return;
+    _name.text = txt(student, 'full_name');
+    _parent.text = txt(student, 'parent_name');
+    _phone.text = txt(student, 'parent_phone');
+    _gender = txt(student, 'gender', 'male');
+    _section = txt(student, 'section', 'anglophone');
+    _classId = student['class_id']?.toString();
+  }
 
   @override
   void dispose() {
@@ -2462,21 +2657,38 @@ class _StudentFormDialogState extends State<StudentFormDialog> {
           .firstOrNull;
       if (selectedClass == null)
         throw Exception('Selected class was not found');
-      final student = await db
-          .from('students')
-          .insert({
-            'full_name': _name.text.trim(),
-            'class_level': txt(selectedClass, 'level'),
-            'gender': _gender,
-            'section': _section,
-            'parent_name': _parent.text.trim(),
-            'parent_phone': _phone.text.trim(),
-            'academic_year_id': selectedClass['academic_year_id'],
-          })
-          .select('id')
-          .single();
+      final data = {
+        'full_name': _name.text.trim(),
+        'class_level': txt(selectedClass, 'level'),
+        'gender': _gender,
+        'section': _section,
+        'parent_name': _parent.text.trim(),
+        'parent_phone': _phone.text.trim(),
+        'academic_year_id': selectedClass['academic_year_id'],
+      };
+      final studentId = _editing
+          ? widget.student!['id']
+          : (await db
+              .from('students')
+              .insert(data)
+              .select('id')
+              .single())['id'];
+      if (_editing) await db.from('students').update(data).eq('id', studentId);
+
+      if (_photo != null) {
+        final ext = _photo!.name.split('.').last.toLowerCase();
+        final path = '$studentId/photo.$ext';
+        await db.storage.from('student-photos').uploadBinary(
+            path, await _photo!.readAsBytes(),
+            fileOptions: const FileOptions(upsert: true));
+        final url = db.storage.from('student-photos').getPublicUrl(path);
+        await db.from('students').update({
+          'photo_url': '$url?t=${DateTime.now().millisecondsSinceEpoch}'
+        }).eq('id', studentId);
+      }
+      await db.from('class_students').delete().eq('student_id', studentId);
       await db.from('class_students').insert({
-        'student_id': student['id'],
+        'student_id': studentId,
         'class_id': selectedClass['id'],
       });
       if (mounted) Navigator.pop(context, true);
@@ -2487,13 +2699,38 @@ class _StudentFormDialogState extends State<StudentFormDialog> {
     }
   }
 
+  Future<void> _pickPhoto(ImageSource source) async {
+    final image =
+        await ImagePicker().pickImage(source: source, imageQuality: 82);
+    if (image != null && mounted) setState(() => _photo = image);
+  }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Add Student',
+      title: Text(_editing ? 'Edit Student' : 'Add Student',
           style: TextStyle(fontWeight: FontWeight.w800)),
       content: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(children: [
+            const Icon(Icons.photo_camera_outlined, color: kPrimary),
+            const SizedBox(width: 8),
+            Expanded(
+                child: Text(_photo == null
+                    ? 'Add or change student photo'
+                    : 'New photo selected')),
+            TextButton.icon(
+              onPressed: _saving ? null : () => _pickPhoto(ImageSource.camera),
+              icon: const Icon(Icons.camera_alt_outlined, size: 17),
+              label: const Text('Camera'),
+            ),
+            TextButton.icon(
+              onPressed: _saving ? null : () => _pickPhoto(ImageSource.gallery),
+              icon: const Icon(Icons.photo_library_outlined, size: 17),
+              label: const Text('Gallery'),
+            ),
+          ]),
+          const SizedBox(height: 10),
           TextField(
             controller: _name,
             textInputAction: TextInputAction.next,
@@ -2553,7 +2790,9 @@ class _StudentFormDialogState extends State<StudentFormDialog> {
         ),
         FilledButton(
           onPressed: _saving ? null : _save,
-          child: Text(_saving ? 'Saving…' : 'Save Student'),
+          child: Text(_saving
+              ? 'Saving…'
+              : (_editing ? 'Save Changes' : 'Save Student')),
         ),
       ],
     );
@@ -2607,9 +2846,11 @@ class _StatCard extends StatelessWidget {
 }
 
 class _StudentCard extends StatelessWidget {
-  const _StudentCard({required this.student, this.showDetails = false});
+  const _StudentCard(
+      {required this.student, this.showDetails = false, this.onTap});
   final Map<String, dynamic> student;
   final bool showDetails;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -2620,6 +2861,7 @@ class _StudentCard extends StatelessWidget {
         border: Border.all(color: kBorder),
       ),
       child: ListTile(
+        onTap: onTap,
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
         leading: _Avatar(row: student),
         title: Text(txt(student, 'full_name', 'Student'),
@@ -2631,22 +2873,29 @@ class _StudentCard extends StatelessWidget {
               : '${txt(student, 'class_level', 'No class')} · ${txt(student, 'section', '')}',
           style: const TextStyle(fontSize: 12),
         ),
-        trailing: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-          decoration: BoxDecoration(
-            color: student['gender'] == 'female'
-                ? kAccent.withAlpha(16)
-                : kPrimary.withAlpha(16),
-            borderRadius: BorderRadius.circular(20),
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: student['gender'] == 'female'
+                  ? kAccent.withAlpha(16)
+                  : kPrimary.withAlpha(16),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              txt(student, 'gender', '—').substring(0, 1).toUpperCase(),
+              style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: student['gender'] == 'female' ? kAccent : kPrimary),
+            ),
           ),
-          child: Text(
-            txt(student, 'gender', '—').substring(0, 1).toUpperCase(),
-            style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: student['gender'] == 'female' ? kAccent : kPrimary),
-          ),
-        ),
+          if (onTap != null)
+            const Padding(
+              padding: EdgeInsets.only(left: 8),
+              child: Icon(Icons.edit_outlined, size: 18, color: kMuted),
+            ),
+        ]),
       ),
     );
   }
@@ -2659,7 +2908,7 @@ class _Avatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final photo = txt(row, 'photo_url');
+    final photo = txt(row, 'photo_url', txt(row, 'avatar_url'));
     final name = txt(row, 'full_name', 'S');
     if (photo.isNotEmpty) {
       return CircleAvatar(radius: radius, backgroundImage: NetworkImage(photo));

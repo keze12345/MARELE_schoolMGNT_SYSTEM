@@ -69,7 +69,7 @@ export default function Fees() {
   const [showFeeSetup,  setShowFeeSetup]  = useState(null);
   const [showStructModal, setShowStructModal] = useState(false);
 
-  const [payForm,    setPayForm]    = useState({ component:"", amount:"", receipt_no:"", bank_name:BANK, payment_date:"", notes:"" });
+  const [payForm,    setPayForm]    = useState({ component:"", amount:"", receipt_no:"", bank_name:BANK, payment_date:"", notes:"", payment_method:"bank" });
   const [setupForm,  setSetupForm]  = useState({ discount_pct:"0", notes:"", is_new_pupil:false });
   const [structForm, setStructForm] = useState({ level_group:"", component:"", amount:"", academic_year:selectedYearName });
   const [saving,       setSaving]       = useState(false);
@@ -254,7 +254,8 @@ export default function Fees() {
     const { error } = await supabase.from("fee_payments").insert([{
       student_fee_id:feeRecord.id, student_id:showPayment.id,
       amount, component:payForm.component, receipt_no:payForm.receipt_no,
-      bank_name:payForm.bank_name,
+      bank_name:payForm.payment_method === "cash" ? "Cash (School)" : payForm.bank_name,
+      payment_method:payForm.payment_method || "bank",
       payment_date:payForm.payment_date||new Date().toISOString().split("T")[0],
       notes:payForm.notes,
       recorded_by:(await supabase.auth.getUser()).data.user?.id,
@@ -263,7 +264,7 @@ export default function Fees() {
     await supabase.from("student_fees").update({ total_paid:(feeRecord.total_paid||0)+amount }).eq("id",feeRecord.id);
     toast.success(`Payment of ${fmt(amount)} recorded!`);
     setShowPayment(null);
-    setPayForm({ component:"", amount:"", receipt_no:"", bank_name:BANK, payment_date:"", notes:"" });
+    setPayForm({ component:"", amount:"", receipt_no:"", bank_name:BANK, payment_date:"", notes:"", payment_method:"bank" });
     fetchAll(); setSaving(false);
   }
 
@@ -676,16 +677,42 @@ export default function Fees() {
                 <input className="input" type="number" required min="1" value={payForm.amount}
                   onChange={e => setPayForm(p=>({...p,amount:e.target.value}))} placeholder="e.g. 100000"/>
               </div>
+              {/* Payment method toggle */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Bank receipt number *</label>
-                <input className="input" required value={payForm.receipt_no}
-                  onChange={e => setPayForm(p=>({...p,receipt_no:e.target.value}))} placeholder="Teller / receipt number"/>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Payment method</label>
+                <div className="flex gap-2">
+                  <button type="button"
+                    onClick={() => setPayForm(p=>({...p, payment_method:"bank", bank_name:BANK}))}
+                    className={`flex-1 py-2 rounded-xl border text-sm font-medium transition-all ${payForm.payment_method==="bank" ? "bg-primary text-white border-primary" : "border-gray-200 text-gray-600 hover:border-gray-300"}`}>
+                    🏦 Bank Transfer
+                  </button>
+                  <button type="button"
+                    onClick={() => setPayForm(p=>({...p, payment_method:"cash", bank_name:"Cash (School)", receipt_no:""}))}
+                    className={`flex-1 py-2 rounded-xl border text-sm font-medium transition-all ${payForm.payment_method==="cash" ? "bg-amber-500 text-white border-amber-500" : "border-gray-200 text-gray-600 hover:border-gray-300"}`}>
+                    💵 Cash at School
+                  </button>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Bank</label>
-                <input className="input" value={payForm.bank_name}
-                  onChange={e => setPayForm(p=>({...p,bank_name:e.target.value}))}/>
-              </div>
+
+              {payForm.payment_method === "bank" && (
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Bank receipt number *</label>
+                    <input className="input" required value={payForm.receipt_no}
+                      onChange={e => setPayForm(p=>({...p,receipt_no:e.target.value}))} placeholder="Teller / receipt number"/>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Bank</label>
+                    <input className="input" value={payForm.bank_name}
+                      onChange={e => setPayForm(p=>({...p,bank_name:e.target.value}))}/>
+                  </div>
+                </>
+              )}
+              {payForm.payment_method === "cash" && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-sm text-amber-800">
+                  💵 Cash payment — recorded at school. No bank receipt required.
+                </div>
+              )}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Payment date *</label>
                 <input className="input" type="date" required value={payForm.payment_date}

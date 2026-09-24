@@ -189,51 +189,79 @@ export default function Students() {
   // ── Assign student to class ──
   // Auto-creates a student_fees row if the class belongs to a holiday program
   // and the student doesn't already have a fee record for that program.
-  async function createHolidayFeeIfNeeded(studentId, classId, isNewPupil) {
-    // Works for both regular and holiday program years
+  async function createHolidayFeeIfNeeded(studentId, classId, isNewPupil = true) {
     const { data: cls } = await supabase
       .from("classes").select("academic_year_id, level").eq("id", classId).single();
     if (!cls?.academic_year_id) return;
 
     const { data: year } = await supabase
-      .from("academic_years").select("name, program_type, is_active")
+      .from("academic_years").select("name, program_type")
       .eq("id", cls.academic_year_id).single();
     if (!year) return;
 
-    // Check if fee record already exists for this student and year
+    // Skip if fee record already exists
     const { data: existing } = await supabase
       .from("student_fees").select("id")
       .eq("student_id", studentId).eq("academic_year", year.name).maybeSingle();
     if (existing) return;
 
-    // Find matching fee structure - try exact level group first, then partial match
+    // Get all fee structures for this year
     const { data: allStructs } = await supabase
       .from("fee_structures").select("*")
       .eq("academic_year", year.name);
-
     if (!allStructs || allStructs.length === 0) return;
 
-    // Match by level group - find best match for student level
     const studentLevel = cls.level || "";
-    let matched = allStructs.find(s =>
-      studentLevel.toLowerCase().includes(s.level_group.toLowerCase()) ||
-      s.level_group.toLowerCase().includes(studentLevel.toLowerCase())
+
+    let levelGroup = null;
+    let levelStructs = [];
+
+    if (year.program_type === "holiday") {
+      // Holiday: flat fee, use all components
+      levelGroup = "Holiday Program";
+      levelStructs = allStructs;
+    } else {
+      // Regular: match level group by student level
+      const LEVEL_MAP = {
+        "Day Care":    "Day Care / Pre-Nursery / Nursery / Primary 1",
+        "Pre-Nursery": "Day Care / Pre-Nursery / Nursery / Primary 1",
+        "Nursery 1":   "Day Care / Pre-Nursery / Nursery / Primary 1",
+        "Nursery 2":   "Day Care / Pre-Nursery / Nursery / Primary 1",
+        "Class 1":     "Day Care / Pre-Nursery / Nursery / Primary 1",
+        "Class 2":     "Primary 2-5",
+        "Class 3":     "Primary 2-5",
+        "Class 4":     "Primary 2-5",
+        "Class 5":     "Primary 2-5",
+        "Class 6":     "Primary 6",
+      };
+      levelGroup = LEVEL_MAP[studentLevel] || allStructs[0]?.level_group;
+      levelStructs = allStructs.filter(s => s.level_group === levelGroup);
+    }
+
+    if (!levelGroup || levelStructs.length === 0) return;
+
+    // Calculate total: tuition components + correct registration fee
+    const tuitionComponents = levelStructs.filter(s =>
+      !s.component.toLowerCase().includes("registration")
     );
+    const tuitionTotal = tuitionComponents.reduce((a, b) => a + Number(b.amount), 0);
 
-    // If no match, use first structure for this year
-    if (!matched) matched = allStructs[0];
-    if (!matched) return;
+    // Pick correct registration fee based on new/old pupil status
+    const regComp = isNewPupil
+      ? levelStructs.find(s => s.component.toLowerCase().includes("new"))
+      : levelStructs.find(s => s.component.toLowerCase().includes("old"));
+    const regAmount = regComp ? Number(regComp.amount) : 0;
 
-    // Calculate total owed correctly: tuition components + exactly ONE matching
-    // registration line (New or Old), never both.
-    const totalOwed = computeTotalOwed(allStructs, matched.level_group, !!isNewPupil);
+    const totalOwed = tuitionTotal + regAmount;
+    if (totalOwed === 0) return;
 
     await supabase.from("student_fees").insert([{
-      student_id: studentId,
+      student_id:  studentId,
       academic_year: year.name,
-      level_group: matched.level_group,
-      total_owed: totalOwed,
-      total_paid: 0,
+      level_group: levelGroup,
+      total_owed:  Math.round(totalOwed),
+      total_paid:  0,
+      is_new_pupil: isNewPupil,
     }]);
   }
 
