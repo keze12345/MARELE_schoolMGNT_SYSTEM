@@ -430,7 +430,6 @@ export default function Students() {
   }
 
   async function importFromExcel(file) {
-    if (!importClass) { toast.error("Select a class first"); return; }
     if (!activeYear?.id) { toast.error("No active academic year"); return; }
     setImporting(true);
     setImportResults(null);
@@ -502,14 +501,20 @@ export default function Students() {
         if (existing) {
           toUpdate.push({ id: existing.id, payload });
         } else {
+          const rowClassName = (obj["class_name"] || "").toLowerCase().trim();
+          const rowMatchedClass = classes.find(c2 =>
+            c2.name.toLowerCase().trim() === rowClassName ||
+            c2.level.toLowerCase().trim() === rowClassName
+          );
           toInsert.push({
             ...payload,
-            class_level:      targetClass?.level || "Class 1",
-            section:          "anglophone",
+            class_level:      rowMatchedClass?.level || obj["class_name"] || "Class 1",
+            section:          obj["section"] || "anglophone",
             academic_year_id: activeYear.id,
             photo_url:        null,
             parent_name:      payload.father_name || payload.mother_name || null,
             parent_phone:     payload.father_phone || payload.mother_phone || null,
+            _classId:         rowMatchedClass?.id || null,
           });
         }
       }
@@ -536,37 +541,47 @@ export default function Students() {
         } else {
           imported = newStudents.length;
 
-          // Batch-link all new students to the class in ONE request
-          const links = newStudents.map(s => ({ student_id: s.id, class_id: importClass }));
-          await supabase.from("class_students").insert(links);
+          // Link each student to their class from the CSV row
+          const links = newStudents
+            .filter(s => s._classId)
+            .map(s => ({ student_id: s.id, class_id: s._classId }));
+          if (links.length > 0) {
+            await supabase.from("class_students").insert(links);
+          }
 
-          // Batch fee creation - compute once for the class, then one insert for all
-          const { data: cls } = await supabase
-            .from("classes").select("academic_year_id, level").eq("id", importClass).single();
-          if (cls?.academic_year_id) {
-            const { data: year } = await supabase
-              .from("academic_years").select("name").eq("id", cls.academic_year_id).single();
-            if (year) {
-              const { data: allStructs } = await supabase
-                .from("fee_structures").select("*").eq("academic_year", year.name);
-              if (allStructs && allStructs.length > 0) {
-                const studentLevel = cls.level || "";
-                let matched = allStructs.find(s =>
-                  studentLevel.toLowerCase().includes(s.level_group.toLowerCase()) ||
-                  s.level_group.toLowerCase().includes(studentLevel.toLowerCase())
-                ) || allStructs[0];
-                if (matched) {
-                  // Compute per-student, since New/Old pupils owe different registration amounts
-                  const feeRows = newStudents.map(s => ({
-                    student_id: s.id,
-                    academic_year: year.name,
-                    level_group: matched.level_group,
-                    total_owed: computeTotalOwed(allStructs, matched.level_group, !!s.is_new_pupil),
-                    total_paid: 0,
-                  }));
-                  await supabase.from("student_fees").insert(feeRows);
-                }
-              }
+          // Batch fee creation — fetch structures once, compute per student
+          const { data: allStructs } = await supabase
+            .from("fee_structures").select("*")
+            .eq("academic_year", activeYear.name || activeYear.id);
+          if (allStructs && allStructs.length > 0) {
+            const LEVEL_MAP = {
+              "Day Care":    "Day Care / Pre-Nursery / Nursery / Primary 1",
+              "Pre-Nursery": "Day Care / Pre-Nursery / Nursery / Primary 1",
+              "Nursery 1":   "Day Care / Pre-Nursery / Nursery / Primary 1",
+              "Nursery 2":   "Day Care / Pre-Nursery / Nursery / Primary 1",
+              "Class 1":     "Day Care / Pre-Nursery / Nursery / Primary 1",
+              "Class 2":     "Primary 2-5",
+              "Class 3":     "Primary 2-5",
+              "Class 4":     "Primary 2-5",
+              "Class 5":     "Primary 2-5",
+              "Class 6":     "Primary 6",
+            };
+            const feeRows = newStudents
+              .filter(s => s.class_level)
+              .map(s => {
+                const lg = LEVEL_MAP[s.class_level] || allStructs[0]?.level_group;
+                return {
+                  student_id:    s.id,
+                  academic_year: activeYear.name,
+                  level_group:   lg,
+                  total_owed:    computeTotalOwed(allStructs, lg, !!s.is_new_pupil),
+                  total_paid:    0,
+                  is_new_pupil:  !!s.is_new_pupil,
+                };
+              })
+              .filter(r => r.total_owed > 0);
+            if (feeRows.length > 0) {
+              await supabase.from("student_fees").insert(feeRows);
             }
           }
 
